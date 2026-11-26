@@ -2,7 +2,7 @@
  * 冲煮会话 store：桥接设备采样流到 BrewSession 状态机，
  * 管理计时显示、粉水比、冲煮计划执行跟踪与自动保存。
  */
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onScopeDispose, reactive, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { BrewSession } from '../core/brewSession'
 import { stepAt, targetAt, type BrewPlan } from '../core/planModel'
@@ -26,32 +26,30 @@ export const useSessionStore = defineStore('session', () => {
   const armingCountdown = ref(0)
 
   // ── 采样桥接 ─────────────────────────────────────────────────────────
+  // 采样同时刷新 nowMs：后台/低刷新时 setInterval 会被降频，用采样时间驱动计时更稳
   device.onWeight((displayW, flow) => {
-    session.onSample(Date.now(), displayW, flow)
+    const now = Date.now()
+    nowMs.value = now
+    session.onSample(now, displayW, flow)
   })
 
   // ── 计时显示 tick ────────────────────────────────────────────────────
-  let tickTimer: ReturnType<typeof setInterval> | null = null
-  watch(
-    () => session.state,
-    (s) => {
-      const running = s === 'running' || s === 'arming' || s === 'armed'
-      if (running && !tickTimer) {
-        tickTimer = setInterval(() => {
-          nowMs.value = Date.now()
-          armingCountdown.value = Math.ceil(session.armingRemainMs(nowMs.value) / 1000)
-        }, 100)
-      } else if (!running && tickTimer) {
-        clearInterval(tickTimer)
-        tickTimer = null
-        armingCountdown.value = 0
-      }
-    },
-    { immediate: true },
-  )
+  // 常驻 10Hz：nowMs 始终跟随真实时间，开始/恢复瞬间不会用旧时间算出负计时；
+  // 仅预备时刷新倒计时，其余状态只更新一个 ref，开销可忽略。
+  const tickTimer = setInterval(() => {
+    nowMs.value = Date.now()
+    if (session.state === 'arming') {
+      armingCountdown.value = Math.ceil(session.armingRemainMs(nowMs.value) / 1000)
+    } else if (armingCountdown.value !== 0) {
+      armingCountdown.value = 0
+    }
+  }, 100)
+  onScopeDispose(() => clearInterval(tickTimer))
   watch(autoStart, (v) => localStorage.setItem('autoStart', v ? '1' : '0'))
 
-  const elapsedMs = computed(() => session.elapsedMs(nowMs.value))
+  const elapsedMs = computed(() => Math.max(0, session.elapsedMs(nowMs.value)))
+  /** 预备倒计时剩余毫秒；主按钮进度条用 */
+  const armingRemainMs = computed(() => session.armingRemainMs(nowMs.value))
   const timerText = computed(() => {
     const ms = elapsedMs.value
     const m = String(Math.floor(ms / 60000)).padStart(2, '0')
@@ -89,6 +87,15 @@ export const useSessionStore = defineStore('session', () => {
     session.coffeeWeight = null
   }
 
+  /** 手动改粉量：只更新数值，不触发去皮（去皮只在「设为当前重量」时发生） */
+  function updateCoffee(weight: number): void {
+    if (!Number.isFinite(weight) || weight <= 0) {
+      session.coffeeWeight = null
+      return
+    }
+    session.coffeeWeight = Math.round(weight * 10) / 10
+  }
+
   // ── 计划执行 ─────────────────────────────────────────────────────────
   const activePlan = computed<BrewPlan | null>(() => {
     if (session.planId == null) return null
@@ -118,6 +125,8 @@ export const useSessionStore = defineStore('session', () => {
 
   /** 预备（自动计时开）：3s 后待注水；自动计时关：直接开始；stopped：先重置再来 */
   function armOrStart(): void {
+    // 状态切换瞬间 tick 还没跑，先同步 nowMs，避免用暂停/停止前的旧时间算出负计时
+    nowMs.value = Date.now()
     if (session.state === 'stopped') {
       session.reset()
     }
@@ -136,6 +145,7 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   function startManual(): void {
+    nowMs.value = Date.now()
     if (session.state === 'idle' || session.state === 'armed') {
       if (autoStart.value && session.state === 'armed') return // armed 等注水即可
       session.startTimer(Date.now())
@@ -143,8 +153,27 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   function pauseResume(): void {
+    nowMs.value = Date.now()
     if (session.state === 'running') session.pauseTimer(Date.now())
     else if (session.state === 'paused') session.resume(Date.now())
+  }
+
+  /**
+   * 左栏主按钮：预备中 → 取消；运行/暂停 → 暂停/继续；
+   * 待命/已停止 → 绑定当前选中的计划后开始（没有选中计划则自由冲煮）。
+   */
+  function primaryAction(): void {
+    const st = session.state
+    if (st === 'arming' || st === 'armed') return armOrStart()
+    if (st === 'running' || st === 'paused') return pauseResume()
+    if (selectedPlanId.value != null) return startWithPlan(selectedPlanId.value)
+    if (st === 'stopped') {
+      const coffee = session.coffeeWeight
+      session.reset()
+      session.coffeeWeight = coffee
+    }
+    session.planId = null
+    armOrStart()
   }
 
   /** 停止计时并尝试保存记录 */
@@ -198,6 +227,7 @@ export const useSessionStore = defineStore('session', () => {
     autoStart,
     selectedPlanId,
     armingCountdown,
+    armingRemainMs,
     elapsedMs,
     timerText,
     running,
@@ -212,11 +242,13 @@ export const useSessionStore = defineStore('session', () => {
     selectedPlan,
     planProgress,
     armOrStart,
+    primaryAction,
     startManual,
     pauseResume,
     stop,
     reset,
     setCoffee,
+    updateCoffee,
     clearCoffee,
     startWithPlan,
     trySave,

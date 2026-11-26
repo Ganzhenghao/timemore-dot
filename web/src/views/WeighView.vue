@@ -14,7 +14,7 @@ import BrewChart from '../components/BrewChart.vue'
 import ToggleSwitch from '../components/ToggleSwitch.vue'
 import type { ScaleSimulator } from '../ble/simulator'
 import { ScaleConnectError } from '../ble/scaleClient'
-import { targetCurve, formatClock } from '../core/planModel'
+import { targetCurve, formatClock, planDurationS } from '../core/planModel'
 
 const device = useDeviceStore()
 const session = useSessionStore()
@@ -137,20 +137,124 @@ const weightClass = computed(() => {
   return ''
 })
 
-// ── 主计时按钮（状态驱动文案） ─────────────────────────────────────────
-const mainBtnText = computed(() => {
+// ── 冲煮配方 / 主按钮 ─────────────────────────────────────────────────
+interface PlanSegment {
+  type: 'pour' | 'pause'
+  startS: number
+  endS: number
+  label?: string
+  targetG?: number
+}
+
+const autoHintOpen = ref(false)
+const canEditRecipe = computed(() => {
   const st = session.session.state
-  if (st === 'idle') return session.autoStart ? '预备（3s 后待注水）' : '开始计时'
-  if (st === 'arming') return `预备中 ${session.armingCountdown}s（点击取消）`
-  if (st === 'armed') return '待注水中（点击取消）'
+  return st === 'idle' || st === 'stopped'
+})
+const brewActive = computed(() => session.running || session.paused)
+const coffeeText = computed(() => (session.coffeeWeight == null ? '' : session.coffeeWeight.toFixed(1)))
+
+/** 选中计划的时间轴：把步骤之间的空档补成停顿，保证分段条连续 */
+const planBar = computed(() => {
+  const plan = session.selectedPlan
+  if (!plan || plan.steps.length === 0) return null
+  const totalS = planDurationS(plan.steps)
+  if (totalS <= 0) return null
+
+  const segs: PlanSegment[] = []
+  let t = 0
+  for (const s of plan.steps) {
+    if (s.startS > t) segs.push({ type: 'pause', startS: t, endS: s.startS })
+    const start = Math.max(t, s.startS)
+    if (s.endS > start) {
+      segs.push({ type: s.type, startS: start, endS: s.endS, label: s.label, targetG: s.targetG })
+    }
+    t = Math.max(t, s.endS)
+  }
+
+  const pours = plan.steps.filter((s) => s.type === 'pour').length
+  const targetG = [...plan.steps].reverse().find((s) => s.type === 'pour')?.targetG ?? 0
+  return { totalS, pours, targetG, segs }
+})
+const planSegments = computed(() => planBar.value?.segs ?? [])
+const planPours = computed(() => planBar.value?.pours ?? 0)
+const planTargetG = computed(() => planBar.value?.targetG ?? 0)
+const planTotalText = computed(() => (planBar.value ? formatClock(planBar.value.totalS) : ''))
+const planBarLabel = computed(() => {
+  const bar = planBar.value
+  const plan = session.selectedPlan
+  if (!bar || !plan) return '自由冲煮'
+  return `${plan.name}：${bar.pours} 段注水，目标 ${bar.targetG} 克，总时长 ${formatClock(bar.totalS)}`
+})
+
+/** 只有当前冲煮确实绑定了选中的计划时才画进度，避免手动开始也显示计划进度 */
+const planBound = computed(() => {
+  const sel = session.selectedPlan
+  const act = session.activePlan
+  return !!sel && !!act && sel.id === act.id
+})
+const planProgressActive = computed(
+  () => planBound.value && (session.running || session.paused || session.stopped),
+)
+const planElapsedS = computed(() => (planProgressActive.value ? session.elapsedMs / 1000 : 0))
+const playheadPct = computed(() => {
+  const bar = planBar.value
+  if (!bar || !planProgressActive.value) return 0
+  return Math.min(planElapsedS.value / bar.totalS, 1) * 100
+})
+
+function segDone(seg: PlanSegment): boolean {
+  return planProgressActive.value && seg.endS <= planElapsedS.value
+}
+
+function segTitle(seg: PlanSegment): string {
+  const kind = seg.type === 'pour' ? '注水' : '停顿'
+  const range = `${formatClock(seg.startS)}–${formatClock(seg.endS)}`
+  return seg.targetG != null ? `${kind} ${range} → ${seg.targetG} g` : `${kind} ${range}`
+}
+
+const armProgress = computed(() => {
+  if (!session.arming) return 1
+  const total = session.session.config.armDelayMs
+  return total > 0 ? Math.max(0, Math.min(1, session.armingRemainMs / total)) : 0
+})
+
+const primaryMain = computed(() => {
+  const st = session.session.state
+  if (st === 'arming') return `预备中 ${Math.max(1, session.armingCountdown)}`
+  if (st === 'armed') return '等待注水'
   if (st === 'running') return '暂停'
   if (st === 'paused') return '继续'
-  return '新的一杯'
+  if (st === 'stopped') return '新的一杯'
+  return session.autoStart ? '预备' : '开始计时'
 })
+
+const primarySub = computed(() => {
+  const st = session.session.state
+  if (st === 'arming' || st === 'armed') return '点击取消'
+  if (st === 'running') return `已注水 ${session.waterG.toFixed(1)} g`
+  if (st === 'paused') return `已暂停 ${session.timerText}`
+  if (st === 'stopped') return session.autoStart ? '归零并重新预备' : '归零并立即计时'
+  const plan = session.selectedPlan
+  if (plan) return session.autoStart ? `${plan.name} · 3 秒后待注水` : `${plan.name} · 立即计时`
+  return session.autoStart ? '3 秒后待注水' : '立即开始 · 双击空格亦可'
+})
+
+/** 手动改粉量只更新数值；去皮发生在「设为当前重量」 */
+function onCoffeeChange(e: Event): void {
+  const input = e.target as HTMLInputElement
+  const v = Number(input.value)
+  if (!Number.isFinite(v) || v <= 0) {
+    session.clearCoffee()
+    input.value = ''
+    return
+  }
+  session.updateCoffee(v)
+}
 
 const ratioText = computed(() => {
   const r = session.ratio
-  return r == null ? '—' : `1:${r.toFixed(1)}`
+  return r == null || r <= 0 ? '—' : `1:${r.toFixed(1)}`
 })
 
 // 图表计划：开始后用激活计划（跟踪进度），未开始用选中计划（预览目标曲线）
@@ -244,67 +348,110 @@ const fmtStep = (s: { label?: string; type: string; startS: number; endS: number
           </div>
         </div>
 
-        <!-- 咖啡粉 -->
-        <div class="coffee-block">
-          <template v-if="session.coffeeWeight">
-            <label class="coffee-label" for="coffee-input">咖啡粉</label>
-            <div class="coffee-row">
+        <!-- 冲煮配方 -->
+        <div class="recipe-card">
+          <div class="recipe-head"><span class="recipe-title">冲煮配方</span></div>
+
+          <div class="r-row">
+            <span class="r-label">咖啡粉</span>
+            <div v-if="session.coffeeWeight != null" class="dose-field">
               <input
                 id="coffee-input"
-                class="coffee-input num"
+                class="dose-input num"
                 type="text"
                 inputmode="decimal"
-                :value="session.coffeeWeight"
-                @change="session.setCoffee(Number(($event.target as HTMLInputElement).value))"
+                :value="coffeeText"
+                aria-label="咖啡粉克重"
+                autocomplete="off"
+                @change="onCoffeeChange"
               />
-              <span class="m-unit">g</span>
-              <button class="btn tiny" type="button" @click="session.clearCoffee()">清除</button>
+              <span class="dose-unit">g</span>
+              <button class="icon-btn" type="button" aria-label="清除咖啡粉克重" @click="session.clearCoffee()">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6" /></svg>
+              </button>
+            </div>
+            <button v-else class="dose-set" type="button" :disabled="!canEditRecipe" @click="session.setCoffee()">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 2v8M2 6h8" /></svg>
+              设为当前重量
+            </button>
+          </div>
+
+          <div class="r-row">
+            <span class="r-label">计划</span>
+            <div class="select-wrap">
+              <select
+                v-model="session.selectedPlanId"
+                class="plan-select"
+                :disabled="!canEditRecipe"
+                aria-label="冲煮计划"
+              >
+                <option :value="null">不使用计划</option>
+                <option v-for="p in plans.list" :key="p.id" :value="p.id">{{ p.name }}</option>
+              </select>
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" /></svg>
+            </div>
+          </div>
+
+          <div v-if="planBar" class="plan-bar" :class="{ active: planProgressActive }" role="img" :aria-label="planBarLabel">
+            <span
+              v-for="(seg, i) in planSegments"
+              :key="i"
+              class="seg"
+              :class="[seg.type, { done: segDone(seg) }]"
+              :style="{ flexGrow: seg.endS - seg.startS }"
+              :title="segTitle(seg)"
+            ></span>
+            <span class="playhead" :style="{ left: `${playheadPct}%` }" aria-hidden="true"></span>
+          </div>
+          <div class="plan-meta">
+            <span>{{ planBar ? `${planPours} 段注水` : '自由冲煮 · 仅计时' }}</span>
+            <span v-if="planBar" class="num">目标 <strong>{{ planTargetG }} g</strong> · {{ planTotalText }}</span>
+          </div>
+        </div>
+
+        <!-- 主操作：绑定选中计划后预备；运行中暂停，预备中取消 -->
+        <button
+          class="primary-action"
+          :class="{ live: session.running, arming: session.arming }"
+          type="button"
+          @click="session.primaryAction()"
+        >
+          <span class="p-main">{{ primaryMain }}</span>
+          <span class="p-sub">{{ primarySub }}</span>
+          <span class="p-progress" aria-hidden="true"><i :style="{ transform: `scaleX(${armProgress})` }"></i></span>
+        </button>
+
+        <!-- 次级操作：冲煮中只保留停止，其余状态是去皮 + 自动计时 -->
+        <div class="secondary">
+          <template v-if="brewActive">
+            <button class="stop-btn" type="button" @click="session.stop()">
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.2" /></svg>
+              停止并保存
+            </button>
+          </template>
+          <template v-else>
+            <button class="tare" type="button" :disabled="session.arming || session.armed" @click="device.tare()">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v7.5" /><path d="M5.4 7.4 8 10l2.6-2.6" /><path d="M3 13.5h10" /></svg>
+              去皮
+            </button>
+            <div class="auto">
+              <ToggleSwitch v-model="session.autoStart" label="注水自动开始" />
+              <button
+                class="help"
+                type="button"
+                aria-label="自动计时说明"
+                aria-controls="auto-hint"
+                :aria-expanded="autoHintOpen"
+                @click="autoHintOpen = !autoHintOpen"
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.3" /><path d="M6.4 6.2a1.7 1.7 0 1 1 2.3 1.6c-.5.2-.7.6-.7 1.1v.3" /><circle cx="8" cy="11.3" r="0.55" fill="currentColor" stroke="none" /></svg>
+              </button>
             </div>
           </template>
-          <button v-else class="btn" type="button" @click="session.setCoffee()">设定咖啡粉（当前重量）</button>
         </div>
-
-        <!-- 计时控制 -->
-        <div class="controls">
-          <button class="btn" @click="device.tare()">去皮</button>
-          <button class="btn primary" @click="session.armOrStart()">{{ mainBtnText }}</button>
-          <button
-            class="btn"
-            :disabled="!session.running && !session.paused"
-            @click="session.pauseResume()"
-          >
-            {{ session.paused ? '继续' : '暂停' }}
-          </button>
-          <button
-            class="btn"
-            :disabled="!session.running && !session.paused"
-            @click="session.stop()"
-          >
-            停止
-          </button>
-          <button class="btn ghost wide" :disabled="session.session.state === 'idle'" @click="session.reset()">重置</button>
-        </div>
-
-        <div class="auto-start-row">
-          <ToggleSwitch v-model="session.autoStart" label="自动计时（注水自动开始）" />
-          <span class="hint-inline">注水时自动开始计时；关闭后用按钮或双击空格开始</span>
-        </div>
-
-        <!-- 计划 -->
-        <div class="plan-pick">
-          <label class="m-label" for="plan-select">冲煮计划</label>
-          <select id="plan-select" v-model="session.selectedPlanId" class="plan-select">
-            <option :value="null">不使用计划</option>
-            <option v-for="p in plans.list" :key="p.id" :value="p.id">{{ p.name }}</option>
-          </select>
-          <button
-            class="btn primary"
-            :disabled="!session.selectedPlanId"
-            @click="session.startWithPlan(session.selectedPlanId!)"
-          >
-            按计划开始
-          </button>
-        </div>
+        <p id="auto-hint" v-show="autoHintOpen && !brewActive" class="hint-inline">
+          注水时自动开始计时。关闭后，可用主按钮或双击空格开始。
+        </p>
       </template>
 
       <!-- 仿真面板 -->
@@ -479,6 +626,10 @@ const fmtStep = (s: { label?: string; type: string; startS: number; endS: number
   display: grid;
   grid-template-columns: 400px 1fr;
   height: 100%;
+  /* 左栏标签在暗底上的可读性：比全局 faint/mute 提亮一档 */
+  --tx-mute: #a09a90;
+  --tx-faint: #8a847a;
+  --tx-2: #c3bdb2;
 }
 
 .weigh.standard {
@@ -495,7 +646,7 @@ const fmtStep = (s: { label?: string; type: string; startS: number; endS: number
   border-right: 1px solid var(--bd);
   display: flex;
   flex-direction: column;
-  gap: 13px;
+  gap: 16px;
 }
 
 /* 高度不足时保持子项原尺寸，由 .pane 的 overflow: auto 负责滚动；
@@ -516,9 +667,9 @@ const fmtStep = (s: { label?: string; type: string; startS: number; endS: number
 }
 
 .weight-label {
-  font-size: 11px;
-  letter-spacing: 0.3em;
-  color: var(--tx-mute);
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  color: var(--tx-faint);
   text-transform: uppercase;
   margin-bottom: 6px;
 }
@@ -563,9 +714,9 @@ const fmtStep = (s: { label?: string; type: string; startS: number; endS: number
 }
 
 .timer-label {
-  font-size: 11px;
-  letter-spacing: 0.3em;
-  color: var(--tx-mute);
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  color: var(--tx-faint);
   text-transform: uppercase;
   margin-bottom: 4px;
 }
@@ -594,16 +745,16 @@ const fmtStep = (s: { label?: string; type: string; startS: number; endS: number
 
 .metric {
   background: var(--bg-soft);
-  padding: 10px 8px;
+  padding: 10px 6px;
   text-align: center;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .m-label {
-  font-size: 10px;
-  letter-spacing: 0.15em;
+  font-size: 12px;
+  letter-spacing: 0.12em;
   color: var(--tx-mute);
   text-transform: uppercase;
 }
@@ -614,83 +765,407 @@ const fmtStep = (s: { label?: string; type: string; startS: number; endS: number
 }
 
 .m-unit {
-  font-size: 10px;
-  color: var(--tx-mute);
-}
-
-/* 咖啡粉 */
-.coffee-block {
-  border: 1px dashed var(--bd-strong);
-  border-radius: 4px;
-  padding: 12px;
-}
-
-.coffee-label {
-  display: block;
-  font-size: 11px;
-  letter-spacing: 0.2em;
-  color: var(--ac);
-  text-transform: uppercase;
-  margin-bottom: 6px;
-}
-
-.coffee-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.coffee-input {
-  width: 90px;
-  background: var(--bg-raise);
-  border: 1px solid var(--bd-strong);
-  border-radius: 4px;
-  color: var(--tx);
-  padding: 6px 10px;
-  font-size: 18px;
-  text-align: center;
-}
-
-/* 计时控制 */
-.controls {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.auto-start-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
-}
-
-/* 说明文字单独成行，避免被挤压折行 */
-.auto-start-row .hint-inline {
-  flex-basis: 100%;
-  white-space: nowrap;
-}
-
-.hint-inline {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--tx-faint);
 }
 
-/* 计划选择 */
-.plan-pick {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
+/* 冲煮配方卡 */
+.recipe-card {
+  padding: 12px 14px 11px;
+  background: #121212;
+  border: 1px solid #232323;
+  border-radius: 6px;
+}
+
+.recipe-head {
+  display: flex;
   align-items: center;
+  gap: 10px;
+  padding-bottom: 8px;
+}
+
+.recipe-title {
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  color: var(--tx-faint);
+  white-space: nowrap;
+}
+
+.recipe-head::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #1f1f1f;
+}
+
+.r-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+}
+
+.r-label {
+  width: 50px;
+  flex: none;
+  font-size: 12px;
+  color: var(--tx-mute);
+}
+
+.dose-field {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.dose-input {
+  width: 72px;
+  margin-left: -6px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 20px;
+  letter-spacing: 0.02em;
+  color: var(--tx);
+  transition: background 0.15s;
+}
+
+.dose-input:hover {
+  background: #191919;
+}
+
+.dose-input:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 1px;
+}
+
+.dose-unit {
+  font-size: 12px;
+  color: var(--tx-faint);
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  border-radius: 4px;
+  color: var(--tx-faint);
+  transition: background 0.15s, color 0.15s;
+}
+
+.icon-btn:hover {
+  background: #191919;
+  color: var(--tx);
+}
+
+.dose-set {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: -8px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--ac);
+  transition: background 0.15s;
+}
+
+.dose-set:hover:not(:disabled) {
+  background: rgba(200, 169, 110, 0.08);
+}
+
+.dose-set:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.select-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
 }
 
 .plan-select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  margin-left: -6px;
+  padding: 5px 24px 5px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 13px;
+  color: var(--tx);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.plan-select:hover:not(:disabled) {
+  background: #191919;
+}
+
+.plan-select:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 1px;
+}
+
+.plan-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.plan-select:disabled + svg {
+  opacity: 0.5;
+}
+
+.select-wrap svg {
+  position: absolute;
+  right: 4px;
+  color: var(--tx-mute);
+  pointer-events: none;
+}
+
+.plan-bar {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  height: 6px;
+  margin-top: 10px;
+  border-radius: 3px;
+  background: #191919;
+}
+
+.seg {
+  flex: 1 1 0;
+  border-radius: 2px;
+}
+
+.seg.pour {
+  background: #6f5c3b;
+}
+
+.seg.pour.done {
+  background: var(--ac);
+}
+
+.seg.pause {
+  background: repeating-linear-gradient(135deg, #2b2b2b 0 3px, #1b1b1b 3px 5px);
+}
+
+.playhead {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  display: none;
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+  background: var(--tx);
+  box-shadow: 0 0 8px rgba(240, 236, 228, 0.45);
+  transform: translateX(-1px);
+  transition: left 0.1s linear;
+}
+
+.plan-bar.active .playhead {
+  display: block;
+}
+
+.plan-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 7px;
+  font-size: 12px;
+  color: var(--tx-faint);
+}
+
+.plan-meta .num {
+  font-size: 12px;
+  color: var(--tx-mute);
+}
+
+.plan-meta strong {
+  font-weight: 400;
+  color: var(--tx-2);
+}
+
+/* 主操作 */
+.primary-action {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 100%;
+  min-height: 62px;
+  padding: 8px 16px 9px;
+  overflow: hidden;
+  border: 1px solid #d3b57c;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #cfb077, #c3a263);
+  color: #17130b;
+  box-shadow: 0 10px 26px rgba(200, 169, 110, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: background 0.18s, border-color 0.18s, color 0.18s, box-shadow 0.18s;
+}
+
+.primary-action:hover {
+  background: linear-gradient(180deg, #dcc08a, #cdae72);
+}
+
+.primary-action:active {
+  transform: translateY(1px);
+}
+
+.primary-action:focus-visible {
+  outline-color: var(--tx);
+}
+
+.p-main {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.03em;
+}
+
+.p-sub {
+  font-size: 12px;
+  line-height: 1.35;
+  color: rgba(23, 19, 11, 0.82);
+}
+
+/* 冲煮进行中：主按钮退为暗金（动作是暂停） */
+.primary-action.live {
+  border-color: #4b3f2a;
+  background: #221d14;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  color: #f2e5c8;
+}
+
+.primary-action.live:hover {
+  background: #2a2318;
+  border-color: #5c4d33;
+}
+
+.primary-action.live .p-sub {
+  color: #c0ac86;
+}
+
+.p-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  display: none;
+  width: 100%;
+  height: 3px;
+  background: rgba(23, 19, 11, 0.16);
+}
+
+.primary-action.arming .p-progress {
+  display: block;
+}
+
+.p-progress i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #17130b;
+  transform-origin: left center;
+  transition: transform 0.1s linear;
+}
+
+/* 次级操作 */
+.secondary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+}
+
+.tare {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  margin-left: -8px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--tx-2);
+  transition: background 0.15s, color 0.15s, opacity 0.15s;
+}
+
+.tare:hover:not(:disabled) {
   background: var(--bg-soft);
   color: var(--tx);
-  border: 1px solid var(--bd-strong);
-  border-radius: 4px;
-  padding: 8px 10px;
+}
+
+.tare:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.auto :deep(.switch-label) {
+  font-size: 12px;
+}
+
+.help {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--tx-faint);
+  transition: color 0.15s;
+}
+
+.help:hover {
+  color: var(--tx-2);
+}
+
+.stop-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1;
+  height: 38px;
+  border: 1px solid #3a3a3a;
+  border-radius: 5px;
   font-size: 13px;
+  color: #e8e3d9;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.stop-btn:hover {
+  background: var(--bg-soft);
+  border-color: #4a4a4a;
+}
+
+.stop-btn svg {
+  color: var(--tx-mute);
+}
+
+.hint-inline {
+  margin-top: -8px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--tx-faint);
 }
 
 /* 仿真 */
@@ -858,10 +1333,6 @@ const fmtStep = (s: { label?: string; type: string; startS: number; endS: number
   padding: 16px;
   font-size: 15px;
   letter-spacing: 0.1em;
-}
-
-.btn.wide {
-  grid-column: 1 / -1;
 }
 
 .btn.tiny {

@@ -1,0 +1,1403 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-zcode-design>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>称量页左栏下半部分 · 重设计</title>
+<style>
+  :root {
+    color-scheme: dark;
+
+    /* 与 web/src/styles/tokens.css 对应的深色咖啡主题 */
+    --bg: #0d0d0d;
+    --bg-deep: #070707;
+    --surface: #121212;
+    --surface-2: #171717;
+    --surface-3: #1c1c1c;
+    --bd: #262626;
+    --bd-2: #303030;
+
+    --tx: #f0ece4;
+    --tx-2: #cbc5ba;
+    --tx-mute: #a09a90;
+    --tx-faint: #8a847a;
+    --tx-ghost: #736d64;
+
+    --ac: #c8a96e;
+    --ac-bright: #e8c98e;
+    --ac-deep: #9c8149;
+
+    --num: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+    --serif: Georgia, 'Times New Roman', serif;
+    --sans: system-ui, -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+
+    --r-panel: 10px;
+    --r-card: 6px;
+    --r-btn: 6px;
+    --pad: 22px;
+    --gap: 16px;
+  }
+
+  * { box-sizing: border-box; }
+
+  [hidden] { display: none !important; }
+
+  html { background: var(--bg-deep); }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--tx);
+    -webkit-font-smoothing: antialiased;
+    background:
+      radial-gradient(1100px 520px at 16% -12%, rgba(200, 169, 110, 0.075), transparent 62%),
+      linear-gradient(180deg, #090909, #060606 55%, #080808);
+  }
+
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  input, select { font: inherit; }
+  .num { font-family: var(--num); font-variant-numeric: tabular-nums; }
+
+  :focus-visible {
+    outline: 2px solid var(--ac);
+    outline-offset: 2px;
+  }
+
+  .wrap {
+    max-width: 1500px;
+    margin: 0 auto;
+    padding: 52px 48px 64px;
+  }
+
+  /* ── 页头 ───────────────────────────────────────────────── */
+  .masthead {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 48px;
+    align-items: end;
+    padding-bottom: 32px;
+    border-bottom: 1px solid #1d1d1d;
+  }
+
+  .eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    color: var(--tx-faint);
+    text-transform: uppercase;
+  }
+
+  .eyebrow::before {
+    content: '';
+    width: 22px;
+    height: 1px;
+    background: var(--ac-deep);
+  }
+
+  h1 {
+    margin: 14px 0 12px;
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: 38px;
+    line-height: 1.24;
+    letter-spacing: 0.01em;
+  }
+
+  h1 em { font-style: normal; color: var(--ac); }
+
+  .lede {
+    margin: 0;
+    max-width: 620px;
+    font-size: 13.5px;
+    line-height: 1.85;
+    color: var(--tx-2);
+  }
+
+  .meta {
+    display: grid;
+    gap: 12px;
+    padding-left: 28px;
+    border-left: 1px solid #1e1e1e;
+    font-size: 12px;
+  }
+
+  .meta div { display: grid; grid-template-columns: 40px 1fr; gap: 12px; }
+
+  .meta dt {
+    margin: 0;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    color: var(--tx-faint);
+  }
+
+  .meta dd { margin: 0; color: var(--tx-mute); line-height: 1.65; }
+
+  .meta .jump { display: flex; gap: 12px; }
+
+  .meta .jump a {
+    display: inline-block;
+    padding: 2px 0;
+    color: var(--tx-mute);
+    text-decoration: none;
+    border-bottom: 1px solid #2e2e2e;
+  }
+
+  .meta .jump a:hover { color: var(--ac); border-bottom-color: var(--ac-deep); }
+
+  /* ── 展示区 ─────────────────────────────────────────────── */
+  .stage {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 28px;
+    align-items: flex-start;
+    margin-top: 40px;
+  }
+
+  .figure { margin: 0; width: 400px; max-width: 100%; }
+
+  .fig-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding: 0 2px;
+  }
+
+  .fig-no {
+    font-family: var(--num);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    color: var(--ac-deep);
+  }
+
+  .fig-name { font-size: 13px; color: var(--tx); letter-spacing: 0.02em; }
+
+  .fig-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    padding: 2px 9px;
+    border: 1px solid #2a2a2a;
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--tx-faint);
+    white-space: nowrap;
+  }
+
+  .fig-tag .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--tx-ghost);
+  }
+
+  .fig-tag .dot.on { background: var(--ac); box-shadow: 0 0 8px rgba(200, 169, 110, 0.55); }
+
+  .fig-note {
+    margin: 12px 2px 0;
+    min-height: 42px;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--tx-faint);
+  }
+
+  /* ── 面板（模拟 400px 左栏） ─────────────────────────────── */
+  .panel {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap);
+    padding: var(--pad);
+    background: var(--bg);
+    border: 1px solid #1e1e1e;
+    border-radius: var(--r-panel);
+    box-shadow: 0 28px 70px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.025);
+    overflow: hidden;
+  }
+
+  /* 重量 */
+  .weight-block { text-align: center; padding-top: 2px; }
+
+  .weight-label,
+  .timer-label {
+    font-size: 12px;
+    letter-spacing: 0.24em;
+    color: var(--tx-faint);
+    text-transform: uppercase;
+  }
+
+  .weight-value {
+    font-family: var(--serif);
+    font-size: 80px;
+    font-weight: 300;
+    line-height: 1.02;
+    letter-spacing: -0.01em;
+    color: var(--tx);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .weight-value.zero { color: var(--tx-mute); }
+
+  .weight-unit { font-size: 16px; line-height: 1; color: var(--tx-mute); }
+
+  /* 计时 */
+  .timer-block { text-align: center; margin-top: -2px; }
+  .timer-label { margin-bottom: 3px; }
+
+  .timer-value {
+    font-family: var(--num);
+    font-variant-numeric: tabular-nums;
+    font-size: 38px;
+    line-height: 1.15;
+    letter-spacing: 0.05em;
+    color: var(--tx-mute);
+    transition: color 0.3s;
+  }
+
+  .timer-value.on { color: var(--ac); }
+
+  /* 指标条 */
+  .metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1px;
+    overflow: hidden;
+    background: var(--bd);
+    border: 1px solid var(--bd);
+    border-radius: 4px;
+  }
+
+  .metric {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 10px 6px;
+    text-align: center;
+    background: var(--surface-2);
+  }
+
+  .m-label {
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    color: var(--tx-mute);
+  }
+
+  .m-value {
+    font-family: var(--num);
+    font-variant-numeric: tabular-nums;
+    font-size: 16px;
+    line-height: 1.35;
+    color: var(--tx);
+  }
+
+  .m-unit { font-size: 12px; letter-spacing: 0.04em; color: var(--tx-faint); }
+
+  /* ── 冲煮配方卡 ─────────────────────────────────────────── */
+  .recipe {
+    padding: 12px 14px 11px;
+    background: var(--surface);
+    border: 1px solid #232323;
+    border-radius: var(--r-card);
+  }
+
+  .recipe-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 8px;
+  }
+
+  .recipe-title {
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    color: var(--tx-faint);
+    white-space: nowrap;
+  }
+
+  .recipe-head::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #1f1f1f;
+  }
+
+  .r-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 34px;
+  }
+
+  .r-label {
+    width: 50px;
+    flex: none;
+    font-size: 12px;
+    color: var(--tx-mute);
+  }
+
+  .dose-field {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .dose-input {
+    width: 72px;
+    margin-left: -6px;
+    padding: 2px 6px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    font-family: var(--num);
+    font-variant-numeric: tabular-nums;
+    font-size: 20px;
+    letter-spacing: 0.02em;
+    color: var(--tx);
+    transition: background 0.15s;
+  }
+
+  .dose-input:hover { background: #191919; }
+  .dose-input:focus-visible { outline: 2px solid var(--ac); outline-offset: 1px; }
+
+  .dose-unit { font-size: 12px; color: var(--tx-faint); }
+
+  .icon-btn {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    margin-left: auto;
+    border-radius: 4px;
+    color: var(--tx-ghost);
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .icon-btn:hover { background: #191919; color: var(--tx-2); }
+
+  .dose-set {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: -8px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--ac);
+    transition: background 0.15s;
+  }
+
+  .dose-set:hover { background: rgba(200, 169, 110, 0.08); }
+
+  .select-wrap { position: relative; display: flex; align-items: center; flex: 1; min-width: 0; }
+
+  .plan-select {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 100%;
+    margin-left: -6px;
+    padding: 5px 24px 5px 6px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    font-size: 13px;
+    color: var(--tx);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .plan-select:hover { background: #191919; }
+  .plan-select:focus-visible { outline: 2px solid var(--ac); outline-offset: 1px; }
+
+  .select-wrap svg {
+    position: absolute;
+    right: 4px;
+    color: var(--tx-mute);
+    pointer-events: none;
+  }
+
+  /* 计划分段条 */
+  .plan-bar {
+    position: relative;
+    display: flex;
+    gap: 2px;
+    height: 6px;
+    margin-top: 10px;
+    border-radius: 3px;
+    background: #191919;
+  }
+
+  .plan-bar[hidden] { display: none; }
+
+  .seg { flex: 1 1 0; border-radius: 2px; }
+  .seg.pour { background: #6f5c3b; }
+  .seg.pour.done { background: var(--ac); }
+  .seg.pause { background: repeating-linear-gradient(135deg, #2b2b2b 0 3px, #1b1b1b 3px 5px); }
+
+  .playhead {
+    position: absolute;
+    left: 0;
+    top: -3px;
+    display: none;
+    width: 2px;
+    height: 12px;
+    border-radius: 1px;
+    background: var(--tx);
+    box-shadow: 0 0 8px rgba(240, 236, 228, 0.45);
+    transform: translateX(-1px);
+    transition: transform 0.12s linear;
+  }
+
+  .plan-bar.active .playhead { display: block; }
+
+  .plan-meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 7px;
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    color: var(--tx-faint);
+  }
+
+  .plan-meta .num { font-size: 12px; color: var(--tx-mute); letter-spacing: 0.01em; }
+  .plan-meta strong { font-weight: 400; color: var(--tx-2); }
+
+  /* ── 主操作 ─────────────────────────────────────────────── */
+  .primary {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    width: 100%;
+    min-height: 62px;
+    padding: 8px 16px 9px;
+    overflow: hidden;
+    border: 1px solid #d3b57c;
+    border-radius: var(--r-btn);
+    background: linear-gradient(180deg, #cfb077, #c3a263);
+    box-shadow: 0 10px 26px rgba(200, 169, 110, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    color: #17130b;
+    transition: background 0.18s, border-color 0.18s, color 0.18s, box-shadow 0.18s;
+  }
+
+  .primary:hover { background: linear-gradient(180deg, #dcc08a, #cdae72); }
+  .primary:active { transform: translateY(1px); }
+  .primary:focus-visible { outline-color: var(--tx); }
+
+  .p-main { font-size: 16px; font-weight: 600; line-height: 1.2; letter-spacing: 0.03em; }
+  .p-sub { font-size: 12px; line-height: 1.35; letter-spacing: 0.01em; color: rgba(23, 19, 11, 0.82); }
+
+  /* 计时进行中：主按钮退为暗金，动作是“暂停” */
+  .primary.is-live {
+    border-color: #4b3f2a;
+    background: #221d14;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    color: #f2e5c8;
+  }
+
+  .primary.is-live:hover { background: #2a2318; border-color: #5c4d33; }
+  .primary.is-live .p-sub { color: #c0ac86; }
+
+  .p-progress {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    display: none;
+    width: 100%;
+    height: 3px;
+    background: rgba(23, 19, 11, 0.16);
+  }
+
+  .primary.is-arming .p-progress { display: block; }
+
+  .p-progress i {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: #17130b;
+    transform-origin: left center;
+    transition: transform 0.1s linear;
+  }
+
+  /* ── 次级操作行 ─────────────────────────────────────────── */
+  .secondary {
+    display: flex;
+    align-items: center;
+    min-height: 36px;
+  }
+
+  .sec-idle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .sec-run { display: none; width: 100%; }
+
+  .secondary.is-running .sec-idle { display: none; }
+  .secondary.is-running .sec-run { display: block; }
+
+  .tare {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 36px;
+    margin-left: -8px;
+    padding: 0 8px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--tx-2);
+    transition: background 0.15s, color 0.15s, opacity 0.15s;
+  }
+
+  .tare:hover { background: var(--surface-2); color: var(--tx); }
+  .tare:disabled { opacity: 0.3; cursor: not-allowed; }
+  .tare:disabled:hover { background: none; color: var(--tx-2); }
+
+  .auto { display: inline-flex; align-items: center; gap: 6px; }
+
+  .auto-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .auto-label { font-size: 12px; color: var(--tx-mute); }
+
+  .switch {
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    flex: none;
+    width: 40px;
+    height: 24px;
+    margin: 0;
+    border: 1px solid #3a3a3a;
+    border-radius: 12px;
+    background: var(--surface-3);
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+  }
+
+  .switch::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--tx-mute);
+    transition: transform 0.2s, background 0.2s;
+  }
+
+  .switch:checked { border-color: var(--ac); background: rgba(200, 169, 110, 0.24); }
+  .switch:checked::before { transform: translateX(16px); background: var(--ac); }
+  .switch:focus-visible { outline: 2px solid var(--ac); outline-offset: 2px; }
+
+  .help {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    margin-left: -2px;
+    border-radius: 50%;
+    color: var(--tx-ghost);
+    transition: color 0.15s;
+  }
+
+  .help:hover { color: var(--tx-2); }
+
+  .hint {
+    display: none;
+    margin: -4px 0 0;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--tx-faint);
+  }
+
+  .hint.open { display: block; }
+
+  .stop-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    height: 38px;
+    border: 1px solid #3a3a3a;
+    border-radius: 5px;
+    font-size: 13px;
+    color: #e8e3d9;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .stop-btn:hover { background: var(--surface-2); border-color: #4a4a4a; }
+  .stop-btn svg { color: var(--tx-mute); }
+
+  /* ── 说明 ───────────────────────────────────────────────── */
+  .notes {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 28px;
+    margin-top: 56px;
+    padding-top: 28px;
+    border-top: 1px solid #1d1d1d;
+  }
+
+  .note h2 {
+    margin: 0 0 8px;
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: 0.18em;
+    color: var(--ac-deep);
+  }
+
+  .note p { margin: 0; font-size: 13px; line-height: 1.85; color: var(--tx-mute); }
+
+  .nowrap { white-space: nowrap; }
+
+  .foot {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    margin-top: 44px;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    color: var(--tx-faint);
+  }
+
+  @media (max-width: 1240px) {
+    .notes { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  @media (max-width: 980px) {
+    .wrap { padding: 40px 32px 56px; }
+    .masthead { grid-template-columns: 1fr; gap: 24px; }
+    .meta { padding-left: 0; border-left: 0; border-top: 1px solid #1e1e1e; padding-top: 18px; }
+    h1 { font-size: 32px; }
+  }
+
+  @media (max-width: 520px) {
+    .wrap { padding: 28px 16px 48px; }
+    h1 { font-size: 27px; }
+    .lede { font-size: 12.5px; }
+    .figure { width: 100%; }
+    .panel { min-height: 0; border-radius: 8px; }
+    .notes { grid-template-columns: 1fr; gap: 22px; }
+    .foot { flex-direction: column; gap: 6px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <div class="eyebrow">Timemore Dot · 称量页</div>
+      <h1>左栏下半部分 · <em>重设计</em></h1>
+      <p class="lede">
+        把咖啡粉、计划、计时控制与自动计时，收成三段：一张「冲煮配方」卡、一个随状态改写的主按钮、一行只在该出现时出现的次操作。
+      </p>
+    </div>
+    <dl class="meta">
+      <div><dt>范围</dt><dd>咖啡粉 · 冲煮计划 · 计时控制 · 自动计时</dd></div>
+      <div><dt>不改</dt><dd>区块结构 / 交互、右栏曲线</dd></div>
+      <div><dt>说明</dt><dd>三个面板可点击操作；克重与计划为演示数据</dd></div>
+      <div><dt>预览</dt><dd class="jump"><a href="#case-idle">待命</a><a href="#case-running">冲煮中</a><a href="#case-stopped">已停止</a></dd></div>
+    </dl>
+  </header>
+
+  <main class="stage">
+
+    <!-- 01 待命 -->
+    <figure class="figure" id="case-idle">
+      <div class="fig-head">
+        <span class="fig-no">01</span>
+        <span class="fig-name">待命</span>
+        <span class="fig-tag"><i class="dot on"></i>计划已选 · 自动开</span>
+      </div>
+      <div class="panel" data-panel data-state="idle" data-auto="1" data-plan="classic"
+           data-elapsed="0" data-water="0" data-weight="0">
+        <div class="weight-block">
+          <div class="weight-label">重量</div>
+          <div class="weight-value" data-weight>0.0</div>
+          <div class="weight-unit">g</div>
+        </div>
+
+        <div class="timer-block">
+          <div class="timer-label">计时</div>
+          <div class="timer-value" data-timer>00:00.0</div>
+        </div>
+
+        <div class="metrics">
+          <div class="metric"><span class="m-label">流速</span><span class="m-value" data-flow>0.0</span><span class="m-unit">g/s</span></div>
+          <div class="metric"><span class="m-label">注水量</span><span class="m-value" data-water>0.0</span><span class="m-unit">g</span></div>
+          <div class="metric"><span class="m-label">粉水比</span><span class="m-value" data-ratio>—</span></div>
+        </div>
+
+        <div class="recipe">
+          <div class="recipe-head"><span class="recipe-title">冲煮配方</span></div>
+          <div class="r-row">
+            <span class="r-label">咖啡粉</span>
+            <div class="dose-field" data-dose-field>
+              <input class="dose-input" data-dose type="text" inputmode="decimal" value="18.0"
+                     aria-label="咖啡粉克重" autocomplete="off" />
+              <span class="dose-unit">g</span>
+              <button class="icon-btn" type="button" data-clear aria-label="清除咖啡粉克重">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"/></svg>
+              </button>
+            </div>
+            <button class="dose-set" type="button" data-dose-set hidden>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 2v8M2 6h8"/></svg>
+              设为当前重量
+            </button>
+          </div>
+          <div class="r-row">
+            <span class="r-label">计划</span>
+            <div class="select-wrap">
+              <select class="plan-select" data-plan-select aria-label="冲煮计划">
+                <option value="none">不使用计划</option>
+                <option value="classic" selected>经典三段式</option>
+                <option value="flash">一刀流</option>
+              </select>
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>
+            </div>
+          </div>
+          <div class="plan-bar" data-bar role="img" aria-label="计划分段"></div>
+          <div class="plan-meta">
+            <span data-meta-left>3 段注水</span>
+            <span class="num" data-meta-right>目标 <strong>240 g</strong> · 2:00</span>
+          </div>
+        </div>
+
+        <button class="primary" type="button" data-primary>
+          <span class="p-main" data-main>预备</span>
+          <span class="p-sub" data-sub>经典三段式 · 3 秒后待注水</span>
+          <span class="p-progress" aria-hidden="true"><i data-progress></i></span>
+        </button>
+
+        <div class="secondary" data-secondary>
+          <div class="sec-idle">
+            <button class="tare" type="button" data-tare>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v7.5"/><path d="M5.4 7.4 8 10l2.6-2.6"/><path d="M3 13.5h10"/></svg>
+              去皮
+            </button>
+            <span class="auto">
+              <label class="auto-toggle">
+                <span class="auto-label">注水自动开始</span>
+                <input class="switch" type="checkbox" role="switch" data-auto checked aria-label="注水自动开始" />
+              </label>
+              <button class="help" type="button" data-help aria-label="自动计时说明" aria-expanded="false">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.3"/><path d="M6.4 6.2a1.7 1.7 0 1 1 2.3 1.6c-.5.2-.7.6-.7 1.1v.3"/><circle cx="8" cy="11.3" r="0.55" fill="currentColor" stroke="none"/></svg>
+              </button>
+            </span>
+          </div>
+          <div class="sec-run">
+            <button class="stop-btn" type="button" data-stop>
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.2"/></svg>
+              停止并保存
+            </button>
+          </div>
+        </div>
+
+        <p class="hint" data-hint>注水时自动开始计时。关闭后，可用主按钮或双击空格开始。</p>
+      </div>
+      <figcaption class="fig-note">
+        主按钮同时说明计划与 3 秒预备；去皮与自动计时退到次级行，「重置」不再常驻。
+      </figcaption>
+    </figure>
+
+    <!-- 02 冲煮中 -->
+    <figure class="figure" id="case-running">
+      <div class="fig-head">
+        <span class="fig-no">02</span>
+        <span class="fig-name">冲煮中</span>
+        <span class="fig-tag"><i class="dot on"></i>计划进行中</span>
+      </div>
+      <div class="panel" data-panel data-state="running" data-auto="1" data-plan="classic"
+           data-elapsed="42.6" data-water="112.4" data-weight="112.4">
+        <div class="weight-block">
+          <div class="weight-label">重量</div>
+          <div class="weight-value" data-weight>112.4</div>
+          <div class="weight-unit">g</div>
+        </div>
+
+        <div class="timer-block">
+          <div class="timer-label">计时</div>
+          <div class="timer-value" data-timer>00:42.6</div>
+        </div>
+
+        <div class="metrics">
+          <div class="metric"><span class="m-label">流速</span><span class="m-value" data-flow>3.2</span><span class="m-unit">g/s</span></div>
+          <div class="metric"><span class="m-label">注水量</span><span class="m-value" data-water>112.4</span><span class="m-unit">g</span></div>
+          <div class="metric"><span class="m-label">粉水比</span><span class="m-value" data-ratio>1:6.2</span></div>
+        </div>
+
+        <div class="recipe">
+          <div class="recipe-head"><span class="recipe-title">冲煮配方</span></div>
+          <div class="r-row">
+            <span class="r-label">咖啡粉</span>
+            <div class="dose-field" data-dose-field>
+              <input class="dose-input" data-dose type="text" inputmode="decimal" value="18.0"
+                     aria-label="咖啡粉克重" autocomplete="off" />
+              <span class="dose-unit">g</span>
+              <button class="icon-btn" type="button" data-clear aria-label="清除咖啡粉克重">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"/></svg>
+              </button>
+            </div>
+            <button class="dose-set" type="button" data-dose-set hidden>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 2v8M2 6h8"/></svg>
+              设为当前重量
+            </button>
+          </div>
+          <div class="r-row">
+            <span class="r-label">计划</span>
+            <div class="select-wrap">
+              <select class="plan-select" data-plan-select aria-label="冲煮计划">
+                <option value="none">不使用计划</option>
+                <option value="classic" selected>经典三段式</option>
+                <option value="flash">一刀流</option>
+              </select>
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>
+            </div>
+          </div>
+          <div class="plan-bar" data-bar role="img" aria-label="计划分段"></div>
+          <div class="plan-meta">
+            <span data-meta-left>3 段注水</span>
+            <span class="num" data-meta-right>目标 <strong>240 g</strong> · 2:00</span>
+          </div>
+        </div>
+
+        <button class="primary" type="button" data-primary>
+          <span class="p-main" data-main>暂停</span>
+          <span class="p-sub" data-sub>已注水 112.4 g</span>
+          <span class="p-progress" aria-hidden="true"><i data-progress></i></span>
+        </button>
+
+        <div class="secondary" data-secondary>
+          <div class="sec-idle">
+            <button class="tare" type="button" data-tare>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v7.5"/><path d="M5.4 7.4 8 10l2.6-2.6"/><path d="M3 13.5h10"/></svg>
+              去皮
+            </button>
+            <span class="auto">
+              <label class="auto-toggle">
+                <span class="auto-label">注水自动开始</span>
+                <input class="switch" type="checkbox" role="switch" data-auto checked aria-label="注水自动开始" />
+              </label>
+              <button class="help" type="button" data-help aria-label="自动计时说明" aria-expanded="false">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.3"/><path d="M6.4 6.2a1.7 1.7 0 1 1 2.3 1.6c-.5.2-.7.6-.7 1.1v.3"/><circle cx="8" cy="11.3" r="0.55" fill="currentColor" stroke="none"/></svg>
+              </button>
+            </span>
+          </div>
+          <div class="sec-run">
+            <button class="stop-btn" type="button" data-stop>
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.2"/></svg>
+              停止并保存
+            </button>
+          </div>
+        </div>
+
+        <p class="hint" data-hint>注水时自动开始计时。关闭后，可用主按钮或双击空格开始。</p>
+      </div>
+      <figcaption class="fig-note">
+        主按钮转为暗金「暂停」，下方只剩「停止并保存」；计划条上的游标显示当前进度。
+      </figcaption>
+    </figure>
+
+    <!-- 03 已停止 -->
+    <figure class="figure" id="case-stopped">
+      <div class="fig-head">
+        <span class="fig-no">03</span>
+        <span class="fig-name">已停止</span>
+        <span class="fig-tag"><i class="dot"></i>结果保留</span>
+      </div>
+      <div class="panel" data-panel data-state="stopped" data-auto="1" data-plan="classic"
+           data-elapsed="130" data-water="242.4" data-weight="242.4">
+        <div class="weight-block">
+          <div class="weight-label">重量</div>
+          <div class="weight-value" data-weight>242.4</div>
+          <div class="weight-unit">g</div>
+        </div>
+
+        <div class="timer-block">
+          <div class="timer-label">计时</div>
+          <div class="timer-value" data-timer>02:10.0</div>
+        </div>
+
+        <div class="metrics">
+          <div class="metric"><span class="m-label">流速</span><span class="m-value" data-flow>0.0</span><span class="m-unit">g/s</span></div>
+          <div class="metric"><span class="m-label">注水量</span><span class="m-value" data-water>242.4</span><span class="m-unit">g</span></div>
+          <div class="metric"><span class="m-label">粉水比</span><span class="m-value" data-ratio>1:13.5</span></div>
+        </div>
+
+        <div class="recipe">
+          <div class="recipe-head"><span class="recipe-title">冲煮配方</span></div>
+          <div class="r-row">
+            <span class="r-label">咖啡粉</span>
+            <div class="dose-field" data-dose-field>
+              <input class="dose-input" data-dose type="text" inputmode="decimal" value="18.0"
+                     aria-label="咖啡粉克重" autocomplete="off" />
+              <span class="dose-unit">g</span>
+              <button class="icon-btn" type="button" data-clear aria-label="清除咖啡粉克重">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"/></svg>
+              </button>
+            </div>
+            <button class="dose-set" type="button" data-dose-set hidden>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 2v8M2 6h8"/></svg>
+              设为当前重量
+            </button>
+          </div>
+          <div class="r-row">
+            <span class="r-label">计划</span>
+            <div class="select-wrap">
+              <select class="plan-select" data-plan-select aria-label="冲煮计划">
+                <option value="none">不使用计划</option>
+                <option value="classic" selected>经典三段式</option>
+                <option value="flash">一刀流</option>
+              </select>
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>
+            </div>
+          </div>
+          <div class="plan-bar" data-bar role="img" aria-label="计划分段"></div>
+          <div class="plan-meta">
+            <span data-meta-left>3 段注水</span>
+            <span class="num" data-meta-right>目标 <strong>240 g</strong> · 2:00</span>
+          </div>
+        </div>
+
+        <button class="primary" type="button" data-primary>
+          <span class="p-main" data-main>新的一杯</span>
+          <span class="p-sub" data-sub>归零并重新预备</span>
+          <span class="p-progress" aria-hidden="true"><i data-progress></i></span>
+        </button>
+
+        <div class="secondary" data-secondary>
+          <div class="sec-idle">
+            <button class="tare" type="button" data-tare>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v7.5"/><path d="M5.4 7.4 8 10l2.6-2.6"/><path d="M3 13.5h10"/></svg>
+              去皮
+            </button>
+            <span class="auto">
+              <label class="auto-toggle">
+                <span class="auto-label">注水自动开始</span>
+                <input class="switch" type="checkbox" role="switch" data-auto checked aria-label="注水自动开始" />
+              </label>
+              <button class="help" type="button" data-help aria-label="自动计时说明" aria-expanded="false">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.3"/><path d="M6.4 6.2a1.7 1.7 0 1 1 2.3 1.6c-.5.2-.7.6-.7 1.1v.3"/><circle cx="8" cy="11.3" r="0.55" fill="currentColor" stroke="none"/></svg>
+              </button>
+            </span>
+          </div>
+          <div class="sec-run">
+            <button class="stop-btn" type="button" data-stop>
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.2"/></svg>
+              停止并保存
+            </button>
+          </div>
+        </div>
+
+        <p class="hint" data-hint>注水时自动开始计时。关闭后，可用主按钮或双击空格开始。</p>
+      </div>
+      <figcaption class="fig-note">
+        主按钮变为「新的一杯」，计时与水量保留到用户主动清空；不再有长期禁用的「重置」。
+      </figcaption>
+    </figure>
+
+  </main>
+
+  <section class="notes" aria-label="设计说明">
+    <div class="note">
+      <h2>层级</h2>
+      <p>只保留一个金色主按钮，文案由状态决定：<span class="nowrap">预备 → 暂停 → 继续 → 新的一杯</span>。停止只在冲煮中出现，重置并入「新的一杯」。</p>
+    </div>
+    <div class="note">
+      <h2>配方</h2>
+      <p>粉量与计划合并为「冲煮配方」卡。计划按步骤时长画成<span class="nowrap">分段条</span>，附目标克重与总时长；选中计划后，主按钮直接绑定该计划。</p>
+    </div>
+    <div class="note">
+      <h2>密度</h2>
+      <p>「注水自动开始」保留开关，长说明收进可展开的帮助；去掉常驻禁用按钮和整行说明，左栏更紧凑，全部标签不小于 12px。</p>
+    </div>
+    <div class="note">
+      <h2>保留</h2>
+      <p>去皮、3 秒预备、暂停 / 继续、停止并保存、<span class="nowrap">计划绑定</span>、双击空格开始。仿真面板不在本次改动范围内。</p>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span>Timemore Dot · 称量页左栏</span>
+    <span>设计稿 v1 · 2026-11-26</span>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  'use strict'
+
+  var FLOW = 3.2
+  var ARM_MS = 3000
+  var DEMO_POUR_AFTER_ARMED_MS = 1600
+
+  var PLANS = {
+    none: { id: 'none', name: '不使用计划', segs: null, targetG: 0, totalS: 0, pours: 0 },
+    classic: {
+      id: 'classic',
+      name: '经典三段式',
+      segs: [
+        { type: 'pour', s: 10 },
+        { type: 'pause', s: 20 },
+        { type: 'pour', s: 15 },
+        { type: 'pause', s: 10 },
+        { type: 'pour', s: 15 },
+        { type: 'pause', s: 50 }
+      ],
+      targetG: 240,
+      totalS: 120,
+      pours: 3
+    },
+    flash: {
+      id: 'flash',
+      name: '一刀流',
+      segs: [
+        { type: 'pour', s: 25 },
+        { type: 'pause', s: 65 }
+      ],
+      targetG: 240,
+      totalS: 90,
+      pours: 1
+    }
+  }
+
+  function fmtTimer(seconds) {
+    var s = Math.max(0, seconds)
+    var m = Math.floor(s / 60)
+    var sec = Math.floor(s % 60)
+    var d = Math.floor((s * 10) % 10)
+    return (m < 10 ? '0' + m : String(m)) + ':' + (sec < 10 ? '0' + sec : String(sec)) + '.' + d
+  }
+
+  function fmtClock(seconds) {
+    var m = Math.floor(seconds / 60)
+    var s = Math.round(seconds % 60)
+    return m + ':' + (s < 10 ? '0' + s : String(s))
+  }
+
+  function fmtWeight(g) {
+    return Math.abs(g) < 0.05 ? '0.0' : g.toFixed(1)
+  }
+
+  function Panel(root) {
+    this.root = root
+    this.state = root.dataset.state || 'idle'
+    this.auto = root.dataset.auto !== '0'
+    this.planId = root.dataset.plan || 'classic'
+    this.elapsed = Number(root.dataset.elapsed || 0)
+    this.water = Number(root.dataset.water || 0)
+    this.weight = Number(root.dataset.weight || 0)
+    this.dose = 18
+    this.flow = this.state === 'running' ? FLOW : 0
+    this.armStart = 0
+    this.armedAt = 0
+
+    this.el = {
+      weight: root.querySelector('[data-weight]'),
+      timer: root.querySelector('[data-timer]'),
+      flow: root.querySelector('[data-flow]'),
+      water: root.querySelector('[data-water]'),
+      ratio: root.querySelector('[data-ratio]'),
+      primary: root.querySelector('[data-primary]'),
+      main: root.querySelector('[data-main]'),
+      sub: root.querySelector('[data-sub]'),
+      progress: root.querySelector('[data-progress]'),
+      secondary: root.querySelector('[data-secondary]'),
+      tare: root.querySelector('[data-tare]'),
+      stop: root.querySelector('[data-stop]'),
+      auto: root.querySelector('[data-auto]'),
+      help: root.querySelector('[data-help]'),
+      hint: root.querySelector('[data-hint]'),
+      doseField: root.querySelector('[data-dose-field]'),
+      doseInput: root.querySelector('[data-dose]'),
+      doseSet: root.querySelector('[data-dose-set]'),
+      clear: root.querySelector('[data-clear]'),
+      planSelect: root.querySelector('[data-plan-select]'),
+      bar: root.querySelector('[data-bar]'),
+      metaLeft: root.querySelector('[data-meta-left]'),
+      metaRight: root.querySelector('[data-meta-right]')
+    }
+
+    this.planSelectSet()
+    this.buildPlanBar()
+    this.bind()
+    this.render()
+
+    var self = this
+    setInterval(function () { self.tick() }, 100)
+  }
+
+  Panel.prototype.plan = function () {
+    return PLANS[this.planId] || PLANS.none
+  }
+
+  Panel.prototype.planSelectSet = function () {
+    this.el.planSelect.value = this.planId
+  }
+
+  Panel.prototype.buildPlanBar = function () {
+    var plan = this.plan()
+    this.el.bar.innerHTML = ''
+
+    if (!plan.segs) {
+      this.el.bar.hidden = true
+      this.el.metaLeft.textContent = '自由冲煮 · 仅计时'
+      this.el.metaRight.textContent = ''
+      this.el.bar.setAttribute('aria-label', '不使用计划')
+      return
+    }
+
+    var cum = 0
+    var html = plan.segs.map(function (seg) {
+      var start = cum
+      cum += seg.s
+      var label = (seg.type === 'pour' ? '注水' : '停顿') + ' ' + fmtClock(start) + '–' + fmtClock(cum)
+      return '<span class="seg ' + seg.type + '" style="flex:' + seg.s + ' 1 0" title="' + label + '"></span>'
+    }).join('')
+
+    this.el.bar.innerHTML = html + '<span class="playhead" data-playhead></span>'
+    this.el.bar.hidden = false
+    this.el.bar.classList.remove('active')
+    this.el.bar.setAttribute(
+      'aria-label',
+      plan.name + '：' + plan.pours + ' 段注水，目标 ' + plan.targetG + ' 克，总时长 ' + fmtClock(plan.totalS)
+    )
+    this.el.metaLeft.textContent = plan.pours + ' 段注水'
+    this.el.metaRight.innerHTML = '目标 <strong>' + plan.targetG + ' g</strong> · ' + fmtClock(plan.totalS)
+
+    this.segs = Array.prototype.slice.call(this.el.bar.querySelectorAll('.seg'))
+    this.playhead = this.el.bar.querySelector('[data-playhead]')
+  }
+
+  Panel.prototype.bind = function () {
+    var self = this
+
+    this.el.primary.addEventListener('click', function () { self.onPrimary() })
+    this.el.stop.addEventListener('click', function () {
+      if (self.state !== 'running' && self.state !== 'paused') return
+      self.state = 'stopped'
+      self.flow = 0
+      self.render()
+    })
+    this.el.tare.addEventListener('click', function () {
+      if (self.el.tare.disabled) return
+      self.weight = 0
+      if (self.state === 'idle') self.water = 0
+      self.render()
+    })
+    this.el.clear.addEventListener('click', function () {
+      self.dose = null
+      self.el.doseInput.value = ''
+      self.render()
+    })
+    this.el.doseSet.addEventListener('click', function () {
+      self.dose = self.weight > 0.5 ? Math.round(self.weight * 10) / 10 : 18
+      self.el.doseInput.value = self.dose.toFixed(1)
+      self.render()
+    })
+    this.el.doseInput.addEventListener('change', function () {
+      var v = parseFloat(self.el.doseInput.value)
+      self.dose = Number.isFinite(v) && v > 0 ? v : null
+      self.render()
+    })
+    this.el.doseInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') self.el.doseInput.blur()
+    })
+    this.el.planSelect.addEventListener('change', function () {
+      self.planId = self.el.planSelect.value
+      self.buildPlanBar()
+      self.render()
+    })
+    this.el.auto.addEventListener('change', function () {
+      self.auto = self.el.auto.checked
+      self.render()
+    })
+    this.el.help.addEventListener('click', function () {
+      var open = self.el.hint.classList.toggle('open')
+      self.el.help.setAttribute('aria-expanded', String(open))
+    })
+  }
+
+  Panel.prototype.startRunning = function () {
+    this.state = 'running'
+    this.flow = FLOW
+    this.render()
+  }
+
+  Panel.prototype.onPrimary = function () {
+    if (this.state === 'idle') {
+      if (this.auto) {
+        this.state = 'arming'
+        this.armStart = Date.now()
+      } else {
+        this.startRunning()
+      }
+    } else if (this.state === 'arming' || this.state === 'armed') {
+      this.state = 'idle'
+      this.flow = 0
+    } else if (this.state === 'running') {
+      this.state = 'paused'
+      this.flow = 0
+    } else if (this.state === 'paused') {
+      this.startRunning()
+    } else if (this.state === 'stopped') {
+      this.elapsed = 0
+      this.water = 0
+      this.weight = 0
+      this.flow = 0
+      this.state = 'idle'
+      if (this.auto) {
+        this.state = 'arming'
+        this.armStart = Date.now()
+      } else {
+        this.state = 'running'
+        this.flow = FLOW
+      }
+    }
+    this.render()
+  }
+
+  Panel.prototype.primaryLabel = function () {
+    var plan = this.plan()
+    var st = this.state
+
+    if (st === 'arming') {
+      var remain = Math.max(0, ARM_MS - (Date.now() - this.armStart))
+      return ['预备中 ' + Math.ceil(remain / 1000), '点击取消']
+    }
+    if (st === 'armed') return ['等待注水', '点击取消']
+    if (st === 'running') return ['暂停', '已注水 ' + this.water.toFixed(1) + ' g']
+    if (st === 'paused') return ['继续', '已暂停 ' + fmtTimer(this.elapsed)]
+    if (st === 'stopped') return ['新的一杯', '归零并重新预备']
+
+    if (plan.segs) {
+      if (this.auto) return ['预备', plan.name + ' · 3 秒后待注水']
+      return ['开始计时', plan.name + ' · 立即计时']
+    }
+    if (this.auto) return ['预备', '3 秒后待注水']
+    return ['开始计时', '立即开始 · 双击空格亦可']
+  }
+
+  Panel.prototype.tick = function () {
+    var now = Date.now()
+
+    if (this.state === 'arming') {
+      if (now - this.armStart >= ARM_MS) {
+        this.state = 'armed'
+        this.armedAt = now
+        this.render()
+      }
+    }
+
+    if (this.state === 'armed' && now - this.armedAt >= DEMO_POUR_AFTER_ARMED_MS) {
+      this.startRunning()
+    }
+
+    if (this.state === 'running') {
+      var step = 0.1
+      this.elapsed += step
+      if (this.flow > 0) {
+        this.water += this.flow * step
+        this.weight += this.flow * step
+      }
+      this.render()
+    }
+  }
+
+  Panel.prototype.render = function () {
+    var st = this.state
+    var plan = this.plan()
+
+    this.el.timer.textContent = fmtTimer(this.elapsed)
+    this.el.timer.classList.toggle('on', st === 'running')
+
+    this.el.weight.textContent = fmtWeight(this.weight)
+    this.el.weight.classList.toggle('zero', Math.abs(this.weight) < 0.05)
+
+    this.el.flow.textContent = (st === 'running' ? this.flow : 0).toFixed(1)
+    this.el.water.textContent = this.water.toFixed(1)
+    this.el.ratio.textContent =
+      this.dose && this.water > 0 ? '1:' + (this.water / this.dose).toFixed(1) : '—'
+
+    var hasDose = this.dose != null
+    this.el.doseField.hidden = !hasDose
+    this.el.doseSet.hidden = hasDose
+    if (hasDose && document.activeElement !== this.el.doseInput) {
+      this.el.doseInput.value = this.dose.toFixed(1)
+    }
+
+    var label = this.primaryLabel()
+    this.el.main.textContent = label[0]
+    this.el.sub.textContent = label[1]
+    this.el.primary.setAttribute('aria-label', label[0] + '，' + label[1])
+    this.el.primary.classList.toggle('is-live', st === 'running')
+    this.el.primary.classList.toggle('is-arming', st === 'arming')
+
+    if (st === 'arming') {
+      var remain = Math.max(0, ARM_MS - (Date.now() - this.armStart))
+      this.el.progress.style.transform = 'scaleX(' + (remain / ARM_MS) + ')'
+    } else {
+      this.el.progress.style.transform = 'scaleX(1)'
+    }
+
+    var active = st === 'running' || st === 'paused'
+    this.el.secondary.classList.toggle('is-running', active)
+    this.el.tare.disabled = st === 'arming' || st === 'armed'
+    this.el.auto.checked = this.auto
+
+    if (!plan.segs) {
+      this.el.bar.classList.remove('active')
+      return
+    }
+
+    var t = 0
+    var elapsed = this.elapsed
+    for (var i = 0; i < this.segs.length; i++) {
+      t += plan.segs[i].s
+      this.segs[i].classList.toggle('done', elapsed >= t)
+    }
+
+    var showHead = st === 'running' || st === 'paused' || st === 'stopped'
+    this.el.bar.classList.toggle('active', showHead)
+    if (showHead) {
+      var x = Math.min(elapsed / plan.totalS, 1) * this.el.bar.clientWidth
+      this.playhead.style.transform = 'translateX(' + (x - 1) + 'px)'
+    }
+  }
+
+  var panels = document.querySelectorAll('[data-panel]')
+  for (var i = 0; i < panels.length; i++) {
+    new Panel(panels[i])
+  }
+})()
+</script>
+</body>
+</html>

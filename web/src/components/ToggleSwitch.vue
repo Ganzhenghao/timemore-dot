@@ -48,8 +48,8 @@ function onInput(e: Event): void {
 .switch-input {
   appearance: none;
   width: 40px;
-  height: 22px;
-  border-radius: 11px;
+  height: 24px;
+  border-radius: 12px;
   background: var(--bg-raise);
   border: 1px solid var(--bd-strong);
   position: relative;
@@ -64,8 +64,8 @@ function onInput(e: Event): void {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: var(--tx-mute);
   transition:
@@ -79,7 +79,7 @@ function onInput(e: Event): void {
 }
 
 .switch-input:checked::before {
-  transform: translateX(18px);
+  transform: translateX(16px);
   background: var(--ac);
 }
 
