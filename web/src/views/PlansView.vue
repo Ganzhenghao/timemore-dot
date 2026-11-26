@@ -344,8 +344,12 @@ async function confirmDelete(): Promise<void> {
 
 /* 编辑器 */
 dialog.editor {
+  position: fixed;
+  inset: 0;
+  margin: auto;
   width: min(860px, calc(100vw - 48px));
   max-height: calc(100vh - 64px);
+  max-height: calc(100dvh - 64px);
   overflow: auto;
   background: var(--bg);
   color: var(--tx);

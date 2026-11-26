@@ -64,13 +64,19 @@ function onClose(): void {
 
 <style scoped>
 dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(420px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
   background: var(--bg-soft);
   color: var(--tx);
   border: 1px solid var(--bd-strong);
   border-radius: 8px;
   padding: 24px;
-  min-width: 320px;
-  max-width: 420px;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
 }
 
