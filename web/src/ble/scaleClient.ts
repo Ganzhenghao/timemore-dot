@@ -23,7 +23,7 @@ import {
   FRAME_TIMER_PAUSE,
   FRAME_TIMER_RESET,
   FRAME_TIMER_START,
-  parseFrame,
+  parseFrames,
   UUID_DEVICE_INFO_SERVICE,
   UUID_FIRMWARE_REVISION,
   UUID_MANUFACTURER,
@@ -109,7 +109,6 @@ const CONNECT_FAIL_HINTS = [
   '秤可能处于白名单广播：长按秤的蓝牙键进入配对模式后再试',
   '仍失败时打开 chrome://bluetooth-internals 点 Connect，判断是系统层还是设备层问题',
 ]
-  '常见原因：① 秤已被其他设备占用（手机官方 App、另一 Chrome 标签页或系统蓝牙），BLE 通常只允许一个连接——请关闭手机蓝牙/退出 App 后重试；② 秤处于白名单广播或已绑定状态，长按秤的蓝牙键进入配对模式，或先用官方 App「忘记设备」；③ 可在 chrome://bluetooth-internals 中查看该设备并点 Connect 验证。'
 
 /** HW 写命令需要近期保活 ACK 才会被秤接受（HCI 逆向结论） */
 const CONTROL_ACK_STALE_MS = 12_000
@@ -126,8 +125,7 @@ export class ScaleClient {
   private notifyHandler = (evt: Event): void => {
     const dv = (evt.target as BluetoothRemoteGATTCharacteristic).value
     if (!dv) return
-    const event = parseFrame(dv)
-    if (event) this.handleEvent(event)
+    for (const event of parseFrames(dv)) this.handleEvent(event)
   }
   private writeQueue: Promise<void> = Promise.resolve()
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null

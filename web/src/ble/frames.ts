@@ -108,9 +108,9 @@ export type ScaleEvent =
   | { type: 'writeAck'; cmd: number; ok: boolean }
 
 /**
- * 解析一帧。解析不依赖 length 字段（参考实现观测到 DOT 通知帧长度字段疑似填 0，
- * 与文档 0x0009 不符），按固定偏移取值；接收端不校验 CRC（文档 reserved）。
- * 无法识别返回 null。
+ * 解析一帧。通知帧的 length 字段可能为 0，因此重量类通知按固定偏移取值；
+ * 读写响应按 length 字段截取 payload，避免把后续帧内容算进当前字段。
+ * 接收端不校验 CRC（文档 reserved）。无法识别返回 null。
  */
 export function parseFrame(view: DataView): ScaleEvent | null {
   if (view.byteLength < 6) return null
@@ -133,8 +133,9 @@ export function parseFrame(view: DataView): ScaleEvent | null {
     }
   }
 
-  // 读响应 / 写 ACK：payload 从偏移 6 起，尾 2 字节按 CRC 预留处理
-  const payloadEnd = Math.max(6, view.byteLength - 2)
+  // 读响应 / 写 ACK：length 字段只计算 payload，CRC 固定占最后 2 字节
+  const payloadLength = view.getUint16(4, false)
+  const payloadEnd = Math.min(6 + payloadLength, Math.max(6, view.byteLength - 2))
   const data = new Uint8Array(view.buffer, view.byteOffset + 6, Math.max(0, payloadEnd - 6))
 
   if (opcode === OP_READ) {
@@ -156,6 +157,45 @@ export function parseFrame(view: DataView): ScaleEvent | null {
   }
 
   return null
+}
+
+/**
+ * 解析一次 BLE characteristic value 中可能串联的多帧。
+ * 读写响应依赖 length 计算下一帧边界；通知帧长度字段异常时使用协议固定长度。
+ */
+export function parseFrames(view: DataView): ScaleEvent[] {
+  const events: ScaleEvent[] = []
+  let offset = 0
+
+  while (offset + 6 <= view.byteLength) {
+    const remaining = new DataView(view.buffer, view.byteOffset + offset, view.byteLength - offset)
+    if (remaining.getUint8(0) !== 0xa5 || remaining.getUint8(1) !== 0x5a) break
+
+    const event = parseFrame(remaining)
+    if (event) events.push(event)
+
+    const frameLength = getFrameLength(remaining, event)
+    if (frameLength <= 0 || frameLength > remaining.byteLength) break
+    offset += frameLength
+  }
+
+  return events
+}
+
+function getFrameLength(view: DataView, event: ScaleEvent | null): number {
+  if (view.byteLength < 6) return 0
+
+  const opcode = view.getUint8(2)
+  if (opcode === OP_NOTIFY) {
+    const cmd = view.getUint8(3)
+    if (cmd === CMD_WEIGHT) return 17
+    if (cmd === CMD_TIMER || cmd === CMD_UNIT) return 9
+    if (cmd === CMD_BATTERY) return 10
+  }
+
+  const payloadLength = view.getUint16(4, false)
+  const frameLength = 6 + payloadLength + 2
+  return event && frameLength >= 8 ? frameLength : 0
 }
 
 function parseWeight(view: DataView): ScaleEvent | null {

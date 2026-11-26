@@ -8,6 +8,7 @@ import {
   FRAME_TIMER_START,
   FRAME_KEEPALIVE_WRITE,
   parseFrame,
+  parseFrames,
 } from './frames'
 
 const hex = (u8: Uint8Array) =>
@@ -145,6 +146,42 @@ describe('parseFrame 其他帧', () => {
     if (e?.type === 'readResp') {
       expect(e.cmd).toBe(0x0c)
       expect(new TextDecoder().decode(e.data)).toBe('Hello')
+    }
+  })
+
+  it('设备名只按 length 截取，不吞入后续帧', () => {
+    const name = [...new TextEncoder().encode('TIMEMORE_Dot')]
+    const nextPayload = [...new TextEncoder().encode(' TES017')]
+    const e = parseFrame(
+      frame([
+        0xa5, 0x5a, 0x02, 0x0c, 0x00, name.length, ...name, 0x00, 0x00,
+        0xa5, 0x5a, 0x02, 0x13, 0x00, nextPayload.length, ...nextPayload, 0x00, 0x00,
+      ]),
+    )
+
+    expect(e?.type).toBe('readResp')
+    if (e?.type === 'readResp') {
+      expect(e.cmd).toBe(0x0c)
+      expect(new TextDecoder().decode(e.data)).toBe('TIMEMORE_Dot')
+    }
+  })
+
+  it('一次通知内串联多帧时逐帧解析', () => {
+    const name = [...new TextEncoder().encode('TIMEMORE_Dot')]
+    const nextPayload = [...new TextEncoder().encode(' TES017')]
+    const events = parseFrames(
+      frame([
+        0xa5, 0x5a, 0x02, 0x0c, 0x00, name.length, ...name, 0x00, 0x00,
+        0xa5, 0x5a, 0x02, 0x13, 0x00, nextPayload.length, ...nextPayload, 0x00, 0x00,
+        0xa5, 0x5a, 0x02, 0x08, 0x00, 0x00, 0x00, 0x00,
+      ]),
+    )
+
+    expect(events.map((e) => (e.type === 'readResp' ? e.cmd : null))).toEqual([0x0c, 0x13, 0x08])
+    const nameEvent = events[0]
+    expect(nameEvent.type).toBe('readResp')
+    if (nameEvent.type === 'readResp') {
+      expect(new TextDecoder().decode(nameEvent.data)).toBe('TIMEMORE_Dot')
     }
   })
 
