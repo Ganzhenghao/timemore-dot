@@ -1,0 +1,27 @@
+/* 深色咖啡风主题 tokens：延续参考实现的深底 + 金铜点缀 */
+:root {
+  color-scheme: dark;
+  /* 背景层次 */
+  --bg: #0d0d0d;
+  --bg-soft: #161616;
+  --bg-raise: #1e1e1e;
+  /* 边框 */
+  --bd: #2a2a2a;
+  --bd-strong: #3a3a3a;
+  /* 文字 */
+  --tx: #f0ece4;
+  --tx-mute: #8a8a8a;
+  --tx-faint: #555;
+  /* 品牌/强调 */
+  --ac: #c8a96e; /* 金铜 */
+  --ac-bright: #e8c98e;
+  /* 状态 */
+  --ok: #5ec47a;
+  --err: #e05555;
+  --warn: #e0a844;
+  --info: #7acfe0;
+  /* 语义 */
+  --focus-ring: 2px solid var(--ac);
+  /* 数字等宽 */
+  --num-font: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+}

@@ -1,0 +1,21 @@
+{
+  "name": "timemore-dot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "基于泰摩开放协议的网页电子秤（Timemore DOT TES017）",
+  "type": "module",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c yellow,cyan \"npm run dev -w server\" \"npm run dev -w web\"",
+    "build": "npm run build -w web",
+    "start": "node server/src/index.js",
+    "test": "npm run test -w server && npm run test -w web",
+    "verify:crc": "node scripts/verify-crc.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
