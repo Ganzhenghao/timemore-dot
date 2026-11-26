@@ -321,8 +321,8 @@ const fmtStep = (s: { label?: string; type: string; startS: number; endS: number
         <div v-if="device.overload" class="overload-tip">过载</div>
       </div>
 
-      <!-- 标准模式：仅称重 + 去皮 -->
-      <button v-if="mode === 'standard'" class="btn primary big" @click="device.tare()">去皮（Tare）</button>
+      <!-- 标准模式：仅称重 + 归零 -->
+      <button v-if="mode === 'standard'" class="btn primary big" @click="device.tare()">归零</button>
 
       <!-- 手冲模式 -->
       <template v-else>
@@ -421,7 +421,7 @@ const fmtStep = (s: { label?: string; type: string; startS: number; endS: number
           <span class="p-progress" aria-hidden="true"><i :style="{ transform: `scaleX(${armProgress})` }"></i></span>
         </button>
 
-        <!-- 次级操作：冲煮中只保留停止，其余状态是去皮 + 自动计时 -->
+        <!-- 次级操作：冲煮中只保留停止，其余状态是归零 + 自动计时 -->
         <div class="secondary">
           <template v-if="brewActive">
             <button class="stop-btn" type="button" @click="session.stop()">
@@ -432,7 +432,7 @@ const fmtStep = (s: { label?: string; type: string; startS: number; endS: number
           <template v-else>
             <button class="tare" type="button" :disabled="session.arming || session.armed" @click="device.tare()">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v7.5" /><path d="M5.4 7.4 8 10l2.6-2.6" /><path d="M3 13.5h10" /></svg>
-              去皮
+              归零
             </button>
             <div class="auto">
               <ToggleSwitch v-model="session.autoStart" label="注水自动开始" />
@@ -1094,23 +1094,33 @@ const fmtStep = (s: { label?: string; type: string; startS: number; endS: number
 .tare {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  height: 36px;
-  margin-left: -8px;
-  padding: 0 8px;
-  border-radius: 4px;
+  height: 38px;
+  min-width: 82px;
+  padding: 0 13px;
+  border: 1px solid rgba(200, 169, 110, 0.42);
+  border-radius: 5px;
+  background: rgba(200, 169, 110, 0.08);
   font-size: 13px;
-  color: var(--tx-2);
-  transition: background 0.15s, color 0.15s, opacity 0.15s;
+  font-weight: 500;
+  color: #dbc493;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s;
 }
 
 .tare:hover:not(:disabled) {
-  background: var(--bg-soft);
-  color: var(--tx);
+  border-color: rgba(200, 169, 110, 0.7);
+  background: rgba(200, 169, 110, 0.15);
+  color: #f0dfb9;
+}
+
+.tare:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .tare:disabled {
-  opacity: 0.35;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
