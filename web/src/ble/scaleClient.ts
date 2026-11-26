@@ -241,6 +241,12 @@ export class ScaleClient {
     return this.sendHwCommand(FRAME_TARE, CMD_TARE)
   }
 
+  /** 主动读电量：初始化读取偶发丢失，连接后需补读；结果从 notify 通道返回 */
+  readBattery(): void {
+    if (!this.isConnected) return
+    this.enqueue(buildRead(CMD_BATTERY))
+  }
+
   async timerStart(): Promise<boolean> {
     return this.sendHwCommand(FRAME_TIMER_START, CMD_TIMER)
   }

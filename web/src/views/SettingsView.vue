@@ -146,7 +146,7 @@ async function confirmPowerOff(): Promise<void> {
         <div><dt>型号</dt><dd>{{ device.deviceInfo.modelNumber || '—' }}</dd></div>
         <div><dt>固件</dt><dd>{{ device.deviceInfo.firmware || '—' }}</dd></div>
         <div><dt>制造商</dt><dd>{{ device.deviceInfo.manufacturer || '—' }}</dd></div>
-        <div><dt>电量</dt><dd class="num">{{ device.batteryPercent }}%</dd></div>
+        <div><dt>电量</dt><dd class="num">{{ device.batteryText }}</dd></div>
       </dl>
       <p v-else class="card-desc">未连接设备。到「称量」页连接 DOT 秤或启用仿真秤。</p>
 

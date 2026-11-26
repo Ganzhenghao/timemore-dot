@@ -120,6 +120,11 @@ describe('parseFrame 其他帧', () => {
     expect(e).toEqual({ type: 'battery', bars: 3, percent: 87 })
   })
 
+  it('电量读响应', () => {
+    const e = parseFrame(frame([0xa5, 0x5a, 0x02, 0x05, 0x00, 0x02, 0x03, 0x57, 0x00, 0x00]))
+    expect(e).toEqual({ type: 'battery', bars: 3, percent: 87 })
+  })
+
   it('单位通知', () => {
     const e = parseFrame(frame([0xa5, 0x5a, 0x01, 0x06, 0x00, 0x01, 0x00, 0x00, 0x00]))
     expect(e).toEqual({ type: 'unit', unit: 0 })

@@ -14,12 +14,27 @@ const TARE_SETTLE_MS = 5_000
 /** 流速 EMA 平滑系数（10Hz 输入下约 0.8s 时间常数） */
 const FLOW_EMA_ALPHA = 0.25
 const SIGNAL_LOST_MS = 3_000
+/** 连接后电量补读延迟：初始化读取只有一次，DOT 偶发不回，补读直到收到电量 */
+const BATTERY_RETRY_DELAYS_MS = [800, 2_000, 4_000]
+/** 连接期间电量刷新间隔：秤不主动上报变化时也能更新显示 */
+const BATTERY_REFRESH_MS = 60_000
+
+/**
+ * 电量归一化：DOT 偶发只回格数、不回百分比（percent=0），
+ * 用 4 格电量图标兜底，避免把「没读到百分比」显示成 0%。
+ */
+function normalizeBatteryPercent(bars: number, percent: number): number {
+  const p = Math.min(100, Math.max(0, Math.round(percent)))
+  if (p > 0) return p
+  return bars > 0 ? Math.min(100, Math.round((bars / 4) * 100)) : 0
+}
 
 export const useDeviceStore = defineStore('device', () => {
   const connectionState = ref<ConnectionState>('disconnected')
   const deviceInfo = ref<DeviceInfo>({})
   const batteryBars = ref(0)
-  const batteryPercent = ref(0)
+  /** null = 尚未读到（UI 显示「—」），避免把未知电量当成 0% */
+  const batteryPercent = ref<number | null>(null)
   const overload = ref(false)
   const unit = ref<0 | 1>(0)
   const rawWeightG = ref(0)
@@ -33,6 +48,8 @@ export const useDeviceStore = defineStore('device', () => {
   const scale = ref<Scale | null>(null)
   let pendingTareSettleUntil = 0
   let signalTimer: ReturnType<typeof setInterval> | null = null
+  let batteryRetryTimers: ReturnType<typeof setTimeout>[] = []
+  let batteryRefreshTimer: ReturnType<typeof setInterval> | null = null
   /** 显示重量监听（session store 注册，转发采样） */
   const weightListeners = new Set<(displayW: number, flowGps: number) => void>()
 
@@ -46,13 +63,24 @@ export const useDeviceStore = defineStore('device', () => {
   /** 平滑后的显示流速 g/s */
   const smoothedFlowGps = ref(0)
 
+  const batteryText = computed(() => (batteryPercent.value == null ? '—' : `${batteryPercent.value}%`))
+  const batteryTitle = computed(() =>
+    batteryPercent.value == null ? '电量读取中' : `电量 ${batteryPercent.value}%`,
+  )
+  const batteryFillWidth = computed(() => {
+    const p = batteryPercent.value
+    return p == null ? 0 : Math.max(1, (p / 100) * 12)
+  })
+  const batteryColor = computed(() => {
+    const p = batteryPercent.value
+    if (p == null) return 'var(--tx-mute)'
+    return p > 20 ? 'var(--ok)' : 'var(--err)'
+  })
+
   function makeCallbacks(): ScaleClientCallbacksLike {
     return {
       onEvent: (e) => handleEvent(e),
-      onStateChange: (s) => {
-        connectionState.value = s
-        if (s !== 'connected') stopSignalWatch()
-      },
+      onStateChange: (s) => handleConnectionState(s),
       onDeviceInfo: (info) => (deviceInfo.value = info),
     }
   }
@@ -69,7 +97,7 @@ export const useDeviceStore = defineStore('device', () => {
     }
     if (scale.value) void scale.value.disconnect()
     scale.value = isSimulator.value
-      ? new ScaleSimulator((e) => handleEvent(e), (s) => (connectionState.value = s))
+      ? new ScaleSimulator((e) => handleEvent(e), (s) => handleConnectionState(s))
       : new ScaleClient(makeCallbacks())
     return scale.value
   }
@@ -99,6 +127,48 @@ export const useDeviceStore = defineStore('device', () => {
     await scale.value?.disconnect()
   }
 
+  function handleConnectionState(s: ConnectionState): void {
+    connectionState.value = s
+    if (s === 'connected') {
+      startBatteryRefresh()
+      return
+    }
+    stopBatteryRefresh()
+    batteryPercent.value = null
+    batteryBars.value = 0
+    stopSignalWatch()
+  }
+
+  function clearBatteryRetries(): void {
+    for (const t of batteryRetryTimers) clearTimeout(t)
+    batteryRetryTimers = []
+  }
+
+  function stopBatteryRefresh(): void {
+    clearBatteryRetries()
+    if (batteryRefreshTimer) {
+      clearInterval(batteryRefreshTimer)
+      batteryRefreshTimer = null
+    }
+  }
+
+  /** 连接后补读电量并每 60s 刷新；收到电量事件后停止补读 */
+  function startBatteryRefresh(): void {
+    stopBatteryRefresh()
+    const s = scale.value
+    if (!s) return
+    for (const delay of BATTERY_RETRY_DELAYS_MS) {
+      batteryRetryTimers.push(
+        setTimeout(() => {
+          if (batteryPercent.value == null) s.readBattery()
+        }, delay),
+      )
+    }
+    batteryRefreshTimer = setInterval(() => {
+      if (connectionState.value === 'connected') s.readBattery()
+    }, BATTERY_REFRESH_MS)
+  }
+
   function handleEvent(e: ScaleEvent): void {
     switch (e.type) {
       case 'weight': {
@@ -118,7 +188,8 @@ export const useDeviceStore = defineStore('device', () => {
       }
       case 'battery':
         batteryBars.value = e.bars
-        batteryPercent.value = e.percent
+        batteryPercent.value = normalizeBatteryPercent(e.bars, e.percent)
+        clearBatteryRetries()
         break
       case 'unit':
         unit.value = e.unit
@@ -164,6 +235,10 @@ export const useDeviceStore = defineStore('device', () => {
     deviceInfo,
     batteryBars,
     batteryPercent,
+    batteryText,
+    batteryTitle,
+    batteryFillWidth,
+    batteryColor,
     overload,
     unit,
     rawWeightG,

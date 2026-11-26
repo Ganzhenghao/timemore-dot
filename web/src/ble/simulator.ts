@@ -130,6 +130,11 @@ export class ScaleSimulator {
     return true
   }
 
+  readBattery(): void {
+    if (!this.connected) return
+    this.emit({ type: 'battery', bars: 4, percent: 92 })
+  }
+
   async timerStart(): Promise<boolean> {
     this.simTimerRunning = true
     this.simTimerStart = Date.now()

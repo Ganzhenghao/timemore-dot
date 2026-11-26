@@ -67,13 +67,13 @@ onMounted(() => {
         <span class="conn-text">{{ statusText[device.connectionState] }}</span>
         <template v-if="device.isConnected">
           <span v-if="device.signalLost" class="conn-warn">信号丢失</span>
-          <span v-else class="battery" :title="`电量 ${device.batteryPercent}%`">
+          <span v-else class="battery" :title="device.batteryTitle">
             <svg width="18" height="12" viewBox="0 0 20 12" aria-hidden="true">
               <rect x="0.5" y="0.5" width="16" height="11" rx="2" stroke="var(--tx-mute)" fill="none" />
               <rect x="17" y="3.5" width="2.5" height="5" rx="1" fill="var(--tx-mute)" />
-              <rect x="2.5" y="2.5" :width="Math.max(1, (device.batteryPercent / 100) * 12)" height="7" rx="1" :fill="device.batteryPercent > 20 ? 'var(--ok)' : 'var(--err)'" />
+              <rect x="2.5" y="2.5" :width="device.batteryFillWidth" height="7" rx="1" :fill="device.batteryColor" />
             </svg>
-            <span class="num">{{ device.batteryPercent }}%</span>
+            <span class="num">{{ device.batteryText }}</span>
           </span>
         </template>
       </div>
