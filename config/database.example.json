@@ -1,0 +1,14 @@
+{
+  "_comment": "type 可选 sqlite 或 mysql；MySQL 需预先创建 database（应用自动建表并写入默认计划）。环境变量 DB_TYPE/SQLITE_FILE/MYSQL_* 优先于本文件。",
+  "type": "sqlite",
+  "sqlite": {
+    "file": "data/timemore.db"
+  },
+  "mysql": {
+    "host": "127.0.0.1",
+    "port": 3306,
+    "user": "",
+    "password": "",
+    "database": ""
+  }
+}

@@ -60,6 +60,17 @@ test('数据库 current 脱敏', async () => {
   // 响应中不允许出现密码字段
   assert.equal('password' in (r.data.mysql ?? {}), false)
   assert.equal(JSON.stringify(r).includes('password'), false)
+  // 只读展示附带配置来源信息
+  assert.ok(r.data.configFile.endsWith(path.join('config', 'database.json')))
+  assert.ok(Array.isArray(r.data.envOverrides))
+})
+
+test('新库首次建表写入默认计划', async () => {
+  const r = await get('/api/brewPlan/list')
+  assert.equal(r.ok, true)
+  const plan = r.data.find((p) => p.name === '经典三段式')
+  assert.ok(plan)
+  assert.equal(plan.steps.length, 6)
 })
 
 test('计划：保存 → 列表 → 删除', async () => {

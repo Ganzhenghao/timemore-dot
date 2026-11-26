@@ -6,7 +6,7 @@ import path from 'node:path'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import express from 'express'
-import { loadConfig } from './config.js'
+import { CONFIG_FILE, EXAMPLE_CONFIG_FILE, ensureConfigFile, listEnvOverrides, loadConfig } from './config.js'
 import { DbManager } from './db/adapter.js'
 import { databaseRoutes } from './routes/database.js'
 import { brewPlanRoutes } from './routes/brewPlan.js'
@@ -40,15 +40,29 @@ export async function createApp(config = loadConfig()) {
   return { app, dbm }
 }
 
+async function main() {
+  if (ensureConfigFile()) console.log(`[timemore-dot] 已生成默认数据库配置: ${CONFIG_FILE}`)
+
+  const { app, dbm } = await createApp()
+  const target =
+    dbm.cfg.type === 'mysql'
+      ? `MySQL ${dbm.cfg.mysql.user}@${dbm.cfg.mysql.host}:${dbm.cfg.mysql.port}/${dbm.cfg.mysql.database}`
+      : `SQLite ${dbm.cfg.sqlite.file}`
+  console.log(`[timemore-dot] 存储: ${target}`)
+
+  const overrides = listEnvOverrides(dbm.cfg.type)
+  if (overrides.length) console.log(`[timemore-dot] 环境变量覆盖: ${overrides.join(', ')}`)
+
+  app.listen(PORT, '127.0.0.1', () => {
+    console.log(`[timemore-dot] http://localhost:${PORT}`)
+  })
+}
+
 if (process.argv[1] && process.argv[1].endsWith('index.js')) {
-  createApp()
-    .then(({ app }) => {
-      app.listen(PORT, '127.0.0.1', () => {
-        console.log(`[timemore-dot] http://localhost:${PORT}`)
-      })
-    })
-    .catch((e) => {
-      console.error('启动失败:', e)
-      process.exit(1)
-    })
+  main().catch((e) => {
+    console.error(`[timemore-dot] 启动失败: ${e.message}`)
+    console.error(`  配置文件: ${CONFIG_FILE}`)
+    console.error(`  配置示例: ${EXAMPLE_CONFIG_FILE}`)
+    process.exit(1)
+  })
 }

@@ -26,6 +26,8 @@ export interface DbConfigView {
   type: 'sqlite' | 'mysql'
   sqlite: { file: string }
   mysql?: { host: string; port: number; user: string; database: string }
+  configFile: string
+  envOverrides: string[]
 }
 
 export interface BrewRecordRow {
@@ -61,8 +63,6 @@ export interface BrewPlanRow {
 export const api = {
   health: () => request<{ db: string }>('/api/health'),
   databaseCurrent: () => request<DbConfigView>('/api/database/current'),
-  databaseTest: (cfg: unknown) => post<{ message: string }>('/api/database/test', cfg),
-  databaseSave: (cfg: unknown) => post<{ type: string }>('/api/database/save', cfg),
 
   planList: () => request<BrewPlanRow[]>('/api/brewPlan/list'),
   planSave: (plan: unknown) => post<{ id: number }>('/api/brewPlan/save', plan),

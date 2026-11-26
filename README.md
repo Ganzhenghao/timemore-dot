@@ -16,15 +16,54 @@ npm start            # 启动服务 → http://localhost:3001
 npm run dev          # 后端 :3001 + 前端 Vite :7777
 ```
 
-测试：
+测试与预检：
 
 ```bash
-npm test             # 后端 node:test + 前端 vitest（共 48 项）
+npm test             # 后端 node:test + 前端 vitest
+npm run db:check     # 启动前数据库配置预检（不启动服务、不建表）
 npm run verify:crc   # 复核协议 CRC 字节结论
 ```
 
 > Web Bluetooth 需要 Chrome 安全上下文：通过 `http://localhost` 访问即可（无需 https）。
 > 页面刷新后浏览器会撤销 BLE 授权，需在称量页重新连接；未关闭页签时设备休眠可用「重新连接」恢复。
+
+## 数据存储配置（启动前选择）
+
+默认使用项目内 SQLite（`data/timemore.db`）。首次启动会自动生成 `config/database.json`（已 gitignore），修改后重启 `npm start` 生效；设置页仅只读展示当前配置。
+
+切换为 MySQL：
+
+1. 在 MySQL 中先创建数据库（应用自动建表并写入默认「经典三段式」计划，但不创建数据库），并确保账号有建表权限；
+2. 编辑 `config/database.json`（模板见 `config/database.example.json`）：
+
+   ```json
+   {
+     "type": "mysql",
+     "sqlite": { "file": "data/timemore.db" },
+     "mysql": {
+       "host": "127.0.0.1",
+       "port": 3306,
+       "user": "root",
+       "password": "你的密码",
+       "database": "timemore"
+     }
+   }
+   ```
+
+3. 预检连接（不启动服务、不建表）：`npm run db:check`
+4. 启动：`npm start`
+
+配置优先级：**环境变量 > `config/database.json` > 默认 SQLite**。配置文件 JSON 损坏或参数非法时启动会直接失败并输出原因，不会静默回退到 SQLite。
+
+| 环境变量 | 说明 |
+| --- | --- |
+| `DB_TYPE` | `sqlite` 或 `mysql` |
+| `SQLITE_FILE` | SQLite 文件路径，相对路径按项目根目录解析 |
+| `MYSQL_HOST` / `MYSQL_PORT` | MySQL 主机与端口（默认 3306） |
+| `MYSQL_USER` / `MYSQL_PASSWORD` | MySQL 账号与密码 |
+| `MYSQL_DATABASE` | 数据库名 |
+
+示例：`DB_TYPE=mysql MYSQL_HOST=127.0.0.1 MYSQL_USER=root MYSQL_PASSWORD=secret MYSQL_DATABASE=timemore npm run db:check`
 
 ## 功能
 
@@ -38,7 +77,7 @@ npm run verify:crc   # 复核协议 CRC 字节结论
 - 冲煮计划：多计划 CRUD、步骤编辑（注水/停顿、时间窗、目标克重）、选中即预览目标曲线、按计划冲煮时展示当前/下一步骤与目标差距 Δ、实际 vs 计划对比
 - 历史冲煮记录：结束自动保存（含曲线采样）、分页列表、详情对比、评分备注、删除
 
-**数据存储**：默认项目内 SQLite（`data/timemore.db`）；设置页可配置远程 MySQL（`测试连接` → `保存并切换` 热切换，自动建表）。连接参数存于本地 `config/database.json`（已 gitignore，密码不入库）。
+**数据存储**：启动前通过 `config/database.json` 或环境变量选择 SQLite / MySQL（见上文「数据存储配置」）；MySQL 需先手动创建数据库，应用自动建表并在新库首次建表时写入默认「经典三段式」计划（已有库不会补写）。设置页只读展示当前后端与配置文件路径。
 
 **仿真秤**：连接页可一键启用仿真秤（与真机同一协议解析路径），配合「速率滑块 / 按计划自动注水」在无硬件时完整体验与测试所有功能。
 
@@ -82,8 +121,9 @@ npm run verify:crc   # 复核协议 CRC 字节结论
 ## 项目结构
 
 ```
+├── config/                  # database.example.json（数据库配置模板，实际配置 gitignored）
 ├── docs/                    # 协议文档
-├── scripts/verify-crc.mjs   # CRC 算法验证记录（可复跑）
+├── scripts/                 # verify-crc.mjs（CRC 验证）、check-db.mjs（数据库预检）
 ├── server/                  # Express 后端（ESM 纯 JS）
 │   ├── src/db/              # SQLite / MySQL 适配器 + DDL（无物理外键）
 │   ├── src/routes/          # database / brewPlan / brewRecord

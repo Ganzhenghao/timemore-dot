@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
- * 设置：数据库配置（默认 SQLite，可切换远程 MySQL，测试连接后保存热切换）、
+ * 设置：数据库配置只读展示（启动前由 config/database.json 或环境变量决定）、
  * 设备信息与工具（关机需确认）、应用说明。
  */
-import { onMounted, reactive, ref } from 'vue'
-import { api } from '../api/client'
+import { onMounted, ref } from 'vue'
+import { api, type DbConfigView } from '../api/client'
 import { useDeviceStore } from '../stores/device'
 import { useToastStore } from '../stores/toast'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
@@ -12,52 +12,16 @@ import ConfirmDialog from '../components/ConfirmDialog.vue'
 const device = useDeviceStore()
 const toast = useToastStore()
 
-// ── 数据库 ───────────────────────────────────────────────────────────
-const dbType = ref<'sqlite' | 'mysql'>('sqlite')
-const dbSqliteFile = ref('')
-const mysqlForm = reactive({ host: '127.0.0.1', port: 3306, user: '', password: '', database: '' })
-const testing = ref(false)
-const saving = ref(false)
+// ── 数据库（只读） ───────────────────────────────────────────────────
+const dbConfig = ref<DbConfigView | null>(null)
 
 onMounted(async () => {
   try {
-    const cfg = await api.databaseCurrent()
-    dbType.value = cfg.type
-    dbSqliteFile.value = cfg.sqlite.file
-    if (cfg.mysql) Object.assign(mysqlForm, cfg.mysql)
+    dbConfig.value = await api.databaseCurrent()
   } catch (e) {
     toast.push(`读取配置失败: ${(e as Error).message}`, 'err')
   }
 })
-
-function buildPayload(): unknown {
-  if (dbType.value === 'sqlite') return { type: 'sqlite' }
-  return { type: 'mysql', mysql: { ...mysqlForm } }
-}
-
-async function testConnection(): Promise<void> {
-  testing.value = true
-  try {
-    await api.databaseTest(buildPayload())
-    toast.push('连接成功', 'ok')
-  } catch (e) {
-    toast.push((e as Error).message, 'err')
-  } finally {
-    testing.value = false
-  }
-}
-
-async function saveDb(): Promise<void> {
-  saving.value = true
-  try {
-    await api.databaseSave(buildPayload())
-    toast.push(`已切换到 ${dbType.value === 'mysql' ? 'MySQL' : 'SQLite'}，后续数据将存入新位置`, 'ok')
-  } catch (e) {
-    toast.push((e as Error).message, 'err')
-  } finally {
-    saving.value = false
-  }
-}
 
 // ── 设备工具 ─────────────────────────────────────────────────────────
 const powerOffConfirm = ref(false)
@@ -79,63 +43,41 @@ async function confirmPowerOff(): Promise<void> {
     <!-- 数据库 -->
     <section class="card" aria-labelledby="db-title">
       <h2 id="db-title">数据存储</h2>
-      <p class="card-desc">默认使用项目内 SQLite 文件；配置远程 MySQL 后所有数据将存入该库（切换后自动建表）。</p>
+      <p class="card-desc">
+        存储后端在启动前由 <code>config/database.json</code> 或环境变量决定，修改后需重启服务生效。
+      </p>
 
-      <div class="db-type" role="radiogroup" aria-label="数据库类型">
-        <button
-          v-for="t in (['sqlite', 'mysql'] as const)"
-          :key="t"
-          type="button"
-          role="radio"
-          :aria-checked="dbType === t"
-          class="type-btn"
-          :class="{ active: dbType === t }"
-          @click="dbType = t"
-        >
-          {{ t === 'sqlite' ? 'SQLite（默认）' : 'MySQL' }}
-        </button>
+      <div v-if="dbConfig" class="db-info">
+        <div class="db-row">
+          <span class="k">后端</span>
+          <code class="v">{{ dbConfig.type === 'mysql' ? 'MySQL' : 'SQLite' }}</code>
+        </div>
+        <template v-if="dbConfig.type === 'mysql' && dbConfig.mysql">
+          <div class="db-row">
+            <span class="k">连接</span>
+            <code class="v">{{ dbConfig.mysql.user }}@{{ dbConfig.mysql.host }}:{{ dbConfig.mysql.port }}</code>
+          </div>
+          <div class="db-row">
+            <span class="k">数据库</span>
+            <code class="v">{{ dbConfig.mysql.database }}</code>
+          </div>
+        </template>
+        <div v-else class="db-row">
+          <span class="k">文件位置</span>
+          <code class="v">{{ dbConfig.sqlite.file }}</code>
+        </div>
+        <div class="db-row">
+          <span class="k">配置文件</span>
+          <code class="v">{{ dbConfig.configFile }}</code>
+        </div>
       </div>
 
-      <div v-if="dbType === 'sqlite'" class="sqlite-info">
-        <span class="k">文件位置</span>
-        <code class="v">{{ dbSqliteFile }}</code>
-      </div>
-
-      <form v-else class="mysql-form" @submit.prevent="saveDb">
-        <div class="field-row">
-          <div class="field">
-            <label for="my-host">主机</label>
-            <input id="my-host" v-model.trim="mysqlForm.host" name="my-host" required />
-          </div>
-          <div class="field">
-            <label for="my-port">端口</label>
-            <input id="my-port" v-model.number="mysqlForm.port" name="my-port" type="text" inputmode="numeric" required />
-          </div>
-        </div>
-        <div class="field-row">
-          <div class="field">
-            <label for="my-user">用户名</label>
-            <input id="my-user" v-model.trim="mysqlForm.user" name="my-user" autocomplete="off" required />
-          </div>
-          <div class="field">
-            <label for="my-pass">密码</label>
-            <input id="my-pass" v-model="mysqlForm.password" name="my-pass" type="password" autocomplete="off" />
-          </div>
-        </div>
-        <div class="field">
-          <label for="my-db">数据库名</label>
-          <input id="my-db" v-model.trim="mysqlForm.database" name="my-db" required />
-        </div>
-        <p class="hint-inline">密码仅保存在本地 config/database.json（不入库、不提交 Git）</p>
-        <div class="actions">
-          <button class="btn" type="button" :disabled="testing" @click="testConnection()">
-            {{ testing ? '测试中…' : '测试连接' }}
-          </button>
-          <button class="btn primary" type="submit" :disabled="saving">
-            {{ saving ? '切换中…' : '保存并切换' }}
-          </button>
-        </div>
-      </form>
+      <p v-if="dbConfig?.envOverrides.length" class="warn-tip">
+        以下环境变量覆盖了配置文件：{{ dbConfig.envOverrides.join('、') }}
+      </p>
+      <p class="hint-inline">
+        切换 MySQL：先手动创建数据库 → 编辑配置文件（模板 config/database.example.json）→ npm run db:check → 重启服务。
+      </p>
     </section>
 
     <!-- 设备 -->
@@ -217,84 +159,38 @@ h1 {
   line-height: 1.7;
 }
 
-.db-type {
-  display: inline-flex;
-  border: 1px solid var(--bd);
-  border-radius: 4px;
-  overflow: hidden;
-  margin-bottom: 16px;
+.db-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.type-btn {
-  padding: 8px 20px;
-  font-size: 13px;
-  color: var(--tx-mute);
-  background: var(--bg);
-}
-
-.type-btn.active {
-  background: var(--ac);
-  color: #141414;
-  font-weight: 600;
-}
-
-.sqlite-info {
+.db-row {
   display: flex;
   gap: 12px;
-  align-items: center;
+  align-items: baseline;
   font-size: 13px;
 }
 
-.sqlite-info .k {
+.db-row .k {
   color: var(--tx-mute);
+  min-width: 64px;
 }
 
-.sqlite-info .v {
+.db-row .v {
   font-family: var(--num-font);
   color: var(--ac);
   background: var(--bg-raise);
-  padding: 6px 10px;
+  padding: 4px 8px;
   border-radius: 4px;
   word-break: break-all;
-}
-
-.field-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-
-.field label {
-  font-size: 12px;
-  color: var(--tx-mute);
-}
-
-.field input {
-  background: var(--bg-raise);
-  border: 1px solid var(--bd-strong);
-  border-radius: 4px;
-  color: var(--tx);
-  padding: 8px 10px;
-  font-size: 13px;
-  width: 100%;
-}
-
-.field input:user-invalid {
-  border-color: var(--err);
-  background: rgba(224, 85, 85, 0.08);
 }
 
 .hint-inline {
   font-size: 11px;
   color: var(--tx-faint);
-  margin-bottom: 12px;
+  margin-top: 12px;
+  line-height: 1.6;
 }
 
 .actions {
@@ -340,20 +236,8 @@ h1 {
   background: var(--bg-raise);
 }
 
-.btn.primary {
-  background: var(--ac);
-  border-color: var(--ac);
-  color: #141414;
-  font-weight: 600;
-}
-
 .btn.danger {
   color: var(--err);
   border-color: rgba(224, 85, 85, 0.4);
-}
-
-.btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
 }
 </style>
