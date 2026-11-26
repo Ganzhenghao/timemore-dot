@@ -4,13 +4,16 @@
  * 双击空格开始计时（输入框等可编辑元素聚焦时忽略）。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useDeviceStore } from '../stores/device'
 import { useSessionStore, SPACE_DOUBLE_TAP_MS } from '../stores/session'
 import { usePlansStore } from '../stores/plans'
+import { useModeStore } from '../stores/mode'
 import { useToastStore } from '../stores/toast'
 import BrewChart from '../components/BrewChart.vue'
 import ToggleSwitch from '../components/ToggleSwitch.vue'
 import type { ScaleSimulator } from '../ble/simulator'
+import { ScaleConnectError } from '../ble/scaleClient'
 import { targetCurve, formatClock } from '../core/planModel'
 
 const device = useDeviceStore()
@@ -18,16 +21,8 @@ const session = useSessionStore()
 const plans = usePlansStore()
 const toast = useToastStore()
 
-type Mode = 'pour' | 'standard'
-const mode = ref<Mode>((localStorage.getItem('mode') as Mode) || 'pour')
-function setMode(m: Mode): void {
-  if (session.running || session.paused) {
-    toast.push('请先停止当前计时再切换模式', 'warn')
-    return
-  }
-  mode.value = m
-  localStorage.setItem('mode', m)
-}
+// 模式切换入口在顶栏（App.vue），这里只读共享状态
+const { mode } = storeToRefs(useModeStore())
 
 // ── 双击空格开始计时（手动触发，两种自动模式都可用） ──────────────────────
 let lastSpaceAt = 0
@@ -52,14 +47,41 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 // ── 连接 ─────────────────────────────────────────────────────────────
 const connecting = ref(false)
+/** 连接失败详情：常驻卡片展示（原始错误常缺少上下文，toast 会自动消失） */
+const connectError = ref<{ message: string; hints: string[] } | null>(null)
+
 async function connect(showAll = false): Promise<void> {
   connecting.value = true
+  connectError.value = null
   try {
     await device.connectReal({ showAllDevices: showAll })
     toast.push('秤已连接', 'ok')
   } catch (e) {
     const msg = (e as Error).message ?? ''
-    if (!/cancel|取消/i.test(msg)) toast.push(`连接失败: ${msg}`, 'err')
+    if (/cancel|取消/i.test(msg)) return
+    if (e instanceof ScaleConnectError) {
+      connectError.value = { message: e.message, hints: e.hints }
+    } else {
+      connectError.value = { message: `连接失败：${msg}`, hints: [] }
+    }
+  } finally {
+    connecting.value = false
+  }
+}
+
+/** 免选择器重试（设备引用仍持有，无需再弹选择框） */
+async function retryConnect(): Promise<void> {
+  connecting.value = true
+  connectError.value = null
+  try {
+    await device.reconnect()
+    toast.push('秤已连接', 'ok')
+  } catch (e) {
+    if (e instanceof ScaleConnectError) {
+      connectError.value = { message: e.message, hints: e.hints }
+    } else {
+      connectError.value = { message: `重试失败：${(e as Error).message}`, hints: [] }
+    }
   } finally {
     connecting.value = false
   }
@@ -151,6 +173,28 @@ const fmtStep = (s: { label?: string; type: string; startS: number; endS: number
       </svg>
       <h1>连接电子秤</h1>
       <p>支持 Timemore DOT（TES017）· 桌面版 Chrome</p>
+
+      <!-- 连接失败详情：常驻展示，含阶段、原始错误与排查建议 -->
+      <div v-if="connectError" class="connect-error" role="alert">
+        <div class="ce-head">
+          <span class="ce-title">连接失败</span>
+          <button class="ce-close" type="button" aria-label="关闭错误提示" @click="connectError = null">×</button>
+        </div>
+        <p class="ce-msg">{{ connectError.message }}</p>
+        <ol v-if="connectError.hints.length" class="ce-hints">
+          <li v-for="(h, i) in connectError.hints" :key="i">{{ h }}</li>
+        </ol>
+        <button
+          v-if="device.hasSelectedDevice"
+          class="btn tiny"
+          type="button"
+          :disabled="connecting"
+          @click="retryConnect()"
+        >
+          重试连接（不再选择设备）
+        </button>
+      </div>
+
       <div class="connect-actions">
         <button class="btn primary" :disabled="connecting" @click="connect(false)">
           {{ connecting ? '搜索中…' : '连接 DOT 秤' }}
@@ -166,21 +210,6 @@ const fmtStep = (s: { label?: string; type: string; startS: number; endS: number
   <div v-else class="weigh" :class="{ standard: mode === 'standard' }">
     <!-- 左栏：称量 -->
     <section class="pane scale-pane" aria-label="称量">
-      <div class="mode-switch" role="radiogroup" aria-label="模式切换">
-        <button
-          v-for="m in (['pour', 'standard'] as const)"
-          :key="m"
-          type="button"
-          role="radio"
-          :aria-checked="mode === m"
-          class="mode-btn"
-          :class="{ active: mode === m }"
-          @click="setMode(m)"
-        >
-          {{ m === 'pour' ? '手冲' : '标准' }}
-        </button>
-      </div>
-
       <div class="weight-block">
         <div class="weight-label">重量</div>
         <div class="weight-value num" :class="weightClass">{{ weightText }}</div>
@@ -382,6 +411,69 @@ const fmtStep = (s: { label?: string; type: string; startS: number; endS: number
   font-size: 12px;
 }
 
+/* 连接失败卡片 */
+.connect-error {
+  width: 100%;
+  max-width: 520px;
+  border: 1px solid rgba(224, 85, 85, 0.45);
+  background: rgba(224, 85, 85, 0.07);
+  border-radius: 6px;
+  padding: 12px 14px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ce-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ce-title {
+  color: var(--err);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+}
+
+.ce-close {
+  color: var(--tx-mute);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+.ce-close:hover {
+  color: var(--tx);
+}
+
+.ce-msg {
+  font-family: var(--num-font);
+  font-size: 12px;
+  color: var(--tx);
+  word-break: break-word;
+}
+
+.ce-hints {
+  margin: 0;
+  padding-left: 1.35em;
+  font-size: 12px;
+  color: var(--tx-mute);
+  line-height: 1.85;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ce-hints li::marker {
+  color: var(--err);
+}
+
+.connect-error .btn {
+  align-self: flex-start;
+}
+
 /* 布局 */
 .weigh {
   display: grid;
@@ -406,32 +498,16 @@ const fmtStep = (s: { label?: string; type: string; startS: number; endS: number
   gap: 13px;
 }
 
+/* 高度不足时保持子项原尺寸，由 .pane 的 overflow: auto 负责滚动；
+   否则默认 flex-shrink 会把模式切换按钮、指标条压扁并裁掉文字 */
+.scale-pane > * {
+  flex-shrink: 0;
+}
+
 .standard .scale-pane {
   border-right: none;
   max-width: 480px;
   width: 100%;
-}
-
-/* 模式切换 */
-.mode-switch {
-  display: inline-flex;
-  border: 1px solid var(--bd);
-  border-radius: 4px;
-  overflow: hidden;
-  width: fit-content;
-}
-
-.mode-btn {
-  padding: 7px 22px;
-  font-size: 13px;
-  color: var(--tx-mute);
-  background: var(--bg-soft);
-}
-
-.mode-btn.active {
-  background: var(--ac);
-  color: #141414;
-  font-weight: 600;
 }
 
 /* 重量大数字 */

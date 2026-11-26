@@ -2,6 +2,11 @@
 /.zcode/
 node_modules/
 web/dist/
+# vue-tsc 编译产物：tsconfig 未配 outDir 时会把 .js 写回源码目录，不应入库
+web/src/**/*.js
+web/vite.config.js
+*.tsbuildinfo
+web/.vite/
 data/
 config/database.json
 *.log

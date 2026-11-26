@@ -38,6 +38,11 @@ export const useDeviceStore = defineStore('device', () => {
 
   const displayWeightG = computed(() => rawWeightG.value - tareOffsetG.value)
   const isConnected = computed(() => connectionState.value === 'connected')
+  /** 是否已选择过真机设备（失败后可用 reconnect 免选择器重试） */
+  const hasSelectedDevice = computed(() => {
+    const s = scale.value
+    return !!s && !s.isSimulator && (s as ScaleClient).hasSelectedDevice
+  })
   /** 平滑后的显示流速 g/s */
   const smoothedFlowGps = ref(0)
 
@@ -170,6 +175,7 @@ export const useDeviceStore = defineStore('device', () => {
     isSimulator,
     simulatedPourRate,
     isConnected,
+    hasSelectedDevice,
     connectReal,
     connectSim,
     reconnect,

@@ -57,6 +57,60 @@ export interface ScaleClientCallbacks {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+/** GATT 连接超时：macOS 上连接挂起可能很久，超时后主动断开重试 */
+const GATT_CONNECT_TIMEOUT_MS = 10_000
+/** 连接重试次数（BLE 瞬态失败很常见） */
+const GATT_CONNECT_ATTEMPTS = 3
+const GATT_RETRY_DELAY_MS = 500
+
+/** 带超时的 Promise（Web Bluetooth 无原生超时） */
+function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms)
+    p.then(
+      (v) => {
+        clearTimeout(timer)
+        resolve(v)
+      },
+      (e) => {
+        clearTimeout(timer)
+        reject(e)
+      },
+    )
+  })
+}
+
+/**
+ * 分阶段连接错误：附带阶段名与按概率排序的排查清单，便于界面直接展示。
+ * Web Bluetooth 的原始错误常缺少上下文（如 "Unsupported device."、"Connection attempt failed."）。
+ */
+export class ScaleConnectError extends Error {
+  readonly stage: string
+  readonly hints: string[]
+
+  constructor(stage: string, cause: unknown, hints: string[] = []) {
+    const causeMessage = cause instanceof Error ? cause.message : String(cause)
+    const domName = cause instanceof DOMException && cause.name ? `（${cause.name}）` : ''
+    super(`${stage}：${causeMessage}${domName}`)
+    this.name = 'ScaleConnectError'
+    this.stage = stage
+    this.hints = hints
+  }
+}
+
+/**
+ * GATT 连接失败排查清单（按实测概率排序）。
+ * 首位是 macOS 系统级旧绑定：选择器里显示「已配对」而连接被拒，是粘滞 bond 的典型症状，
+ * 因为 Chromium 在 macOS 只把连接透传给 CoreBluetooth（connectPeripheral:options:nil），不处理配对状态。
+ */
+const CONNECT_FAIL_HINTS = [
+  '若设备在选择器里显示「已配对」：旧绑定会导致连接被拒——到 macOS「系统设置 → 蓝牙」移除该设备，并用官方 App「忘记设备」清除秤侧绑定，然后重新连接',
+  '秤可能已被其他设备占用（手机官方 App、另一 Chrome 标签页、系统蓝牙自动连接）：BLE 通常只允许一个连接，请关闭手机蓝牙/退出 App',
+  '秤可能处于白名单广播：长按秤的蓝牙键进入配对模式后再试',
+  '仍失败时打开 chrome://bluetooth-internals 点 Connect，判断是系统层还是设备层问题',
+]
+  '常见原因：① 秤已被其他设备占用（手机官方 App、另一 Chrome 标签页或系统蓝牙），BLE 通常只允许一个连接——请关闭手机蓝牙/退出 App 后重试；② 秤处于白名单广播或已绑定状态，长按秤的蓝牙键进入配对模式，或先用官方 App「忘记设备」；③ 可在 chrome://bluetooth-internals 中查看该设备并点 Connect 验证。'
+
 /** HW 写命令需要近期保活 ACK 才会被秤接受（HCI 逆向结论） */
 const CONTROL_ACK_STALE_MS = 12_000
 const CONTROL_ACK_WAIT_MS = 4_000
@@ -67,6 +121,14 @@ export class ScaleClient {
 
   private device: BluetoothDevice | null = null
   private writeChar: BluetoothRemoteGATTCharacteristic | null = null
+  /** 当前订阅的通知特征与监听器（重连时先移除，避免重复注册导致事件双发） */
+  private notifyChar: BluetoothRemoteGATTCharacteristic | null = null
+  private notifyHandler = (evt: Event): void => {
+    const dv = (evt.target as BluetoothRemoteGATTCharacteristic).value
+    if (!dv) return
+    const event = parseFrame(dv)
+    if (event) this.handleEvent(event)
+  }
   private writeQueue: Promise<void> = Promise.resolve()
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null
   private lastKeepaliveAck = 0
@@ -84,22 +146,54 @@ export class ScaleClient {
     return this.deviceInfo
   }
 
+  /** 是否已选择过设备（失败后可用 reconnect 免选择器重试） */
+  get hasSelectedDevice() {
+    return this.device !== null
+  }
+
   /** 连接新设备（必须由用户手势触发，如按钮点击） */
   async connect(opts: { showAllDevices?: boolean } = {}): Promise<void> {
     if (!navigator.bluetooth) {
       throw new Error('当前浏览器不支持 Web Bluetooth，请使用桌面版 Chrome')
     }
-    this.cb.onStateChange('connecting')
+    // 适配器/权限预检：不可用时直接给出明确原因，避免后续含糊的失败
     try {
-      this.device = await navigator.bluetooth.requestDevice({
+      if (navigator.bluetooth.getAvailability) {
+        const available = await navigator.bluetooth.getAvailability()
+        if (!available) {
+          throw new Error(
+            '蓝牙不可用或未授权：请确认系统蓝牙已开启，并在「系统设置 → 隐私与安全性 → 蓝牙」中允许 Chrome 使用蓝牙',
+          )
+        }
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith('蓝牙不可用')) throw e
+      // getAvailability 自身异常不阻塞连接尝试
+    }
+
+    this.cb.onStateChange('connecting')
+    let device: BluetoothDevice
+    try {
+      device = await navigator.bluetooth.requestDevice({
         ...(opts.showAllDevices
           ? { acceptAllDevices: true }
           : { filters: [{ namePrefix: 'TIMEMORE' }] }),
         optionalServices: [UUID_SERVICE, UUID_DEVICE_INFO_SERVICE],
       })
-      this.device.addEventListener('gattserverdisconnected', () => this.handleDisconnect())
-      this.deviceInfo = { bleName: this.device.name ?? undefined }
-      this.cb.onDeviceInfo({ ...this.deviceInfo })
+    } catch (e) {
+      this.cb.onStateChange('disconnected')
+      throw new ScaleConnectError('选择设备', e, [
+        '设备列表中没有你的秤时：确认秤已开机、与电脑距离 1 米内',
+        '长按秤的蓝牙键进入配对广播后再试',
+        '也可改用「显示全部设备」绕过名称前缀过滤',
+      ])
+    }
+
+    this.device = device
+    device.addEventListener('gattserverdisconnected', () => this.handleDisconnect())
+    this.deviceInfo = { bleName: device.name ?? undefined }
+    this.cb.onDeviceInfo({ ...this.deviceInfo })
+    try {
       await this.setupGatt()
     } catch (e) {
       this.cb.onStateChange('disconnected')
@@ -121,6 +215,18 @@ export class ScaleClient {
 
   async disconnect(): Promise<void> {
     this.stopKeepalive()
+    // 主动停止通知并解绑监听，避免设备侧继续推送与残留回调
+    if (this.notifyChar) {
+      const char = this.notifyChar
+      this.notifyChar = null
+      char.removeEventListener('characteristicvaluechanged', this.notifyHandler)
+      try {
+        await char.stopNotifications()
+      } catch {
+        /* 设备已断开时 stopNotifications 会抛错，忽略 */
+      }
+    }
+    this.writeChar = null
     if (this.device?.gatt?.connected) {
       this.device.gatt.disconnect()
     } else {
@@ -154,26 +260,81 @@ export class ScaleClient {
   // ── 内部 ─────────────────────────────────────────────────────────────
 
   private async setupGatt(): Promise<void> {
-    const server = this.device!.gatt!
-    if (!server.connected) {
-      await server.connect()
-    }
-    const service = await server.getPrimaryService(UUID_SERVICE)
-    const notifyChar = await service.getCharacteristic(UUID_NOTIFY_CHAR)
-    this.writeChar = await service.getCharacteristic(UUID_WRITE_CHAR)
+    const device = this.device
+    if (!device) throw new Error('尚未选择设备，请先连接')
+    await this.connectGatt(device)
 
-    await notifyChar.startNotifications()
-    notifyChar.addEventListener('characteristicvaluechanged', (evt: Event) => {
-      const dv = (evt.target as BluetoothRemoteGATTCharacteristic).value
-      if (!dv) return
-      const event = parseFrame(dv)
-      if (event) this.handleEvent(event)
-    })
+    const server = device.gatt!
+    let service: BluetoothRemoteGATTService
+    try {
+      service = await withTimeout(server.getPrimaryService(UUID_SERVICE), 8_000, '服务发现超时')
+    } catch (e) {
+      throw new ScaleConnectError('服务发现（0xFFF0）', e, [
+        '请确认设备为 Timemore DOT（TES017）',
+        '其他型号（如 Basic3 Link）不在本应用支持范围',
+        '若固件被修改过，服务 UUID 可能不同',
+      ])
+    }
+
+    let notifyChar: BluetoothRemoteGATTCharacteristic
+    try {
+      notifyChar = await service.getCharacteristic(UUID_NOTIFY_CHAR)
+      this.writeChar = await service.getCharacteristic(UUID_WRITE_CHAR)
+    } catch (e) {
+      throw new ScaleConnectError('特征值获取（0xFFF1 / 0xFFF2）', e, [
+        '设备特征与协议不符，可能不是 DOT（TES017）',
+        '若固件异常，可尝试重新上电后再连',
+      ])
+    }
+
+    try {
+      await notifyChar.startNotifications()
+      this.notifyChar = notifyChar
+      // 同一特征重连时先移除旧 handler，避免事件重复分发
+      notifyChar.removeEventListener('characteristicvaluechanged', this.notifyHandler)
+      notifyChar.addEventListener('characteristicvaluechanged', this.notifyHandler)
+    } catch (e) {
+      throw new ScaleConnectError('订阅重量通知（0xFFF1）', e, [
+        '连接已建立但订阅失败，秤可能被其他 App 占用，请断开后重试',
+        '若系统蓝牙里显示「已配对」，先移除该配对再连',
+      ])
+    }
 
     this.cb.onStateChange('connected')
     void this.readDeviceInfo()
     await this.sendInitSequence()
     this.startKeepalive()
+  }
+
+  /**
+   * 建立 GATT 连接：带 10s 超时与最多 3 次重试。
+   * macOS 上 BLE 连接失败常是瞬态的（设备刚唤醒、上一次连接未释放），重试可解决大部分情况。
+   */
+  private async connectGatt(device: BluetoothDevice): Promise<void> {
+    const gatt = device.gatt
+    if (!gatt) {
+      throw new ScaleConnectError('连接阶段（GATT）', new Error('设备不提供 GATT 接口'), CONNECT_FAIL_HINTS)
+    }
+    let lastError: unknown
+    for (let attempt = 1; attempt <= GATT_CONNECT_ATTEMPTS; attempt++) {
+      try {
+        if (gatt.connected) gatt.disconnect()
+        await withTimeout(gatt.connect(), GATT_CONNECT_TIMEOUT_MS, '连接超时（10 秒）')
+        return
+      } catch (e) {
+        lastError = e
+        console.warn(`[ble] GATT 连接失败（第 ${attempt}/${GATT_CONNECT_ATTEMPTS} 次）`, e)
+        if (attempt < GATT_CONNECT_ATTEMPTS) {
+          try {
+            gatt.disconnect()
+          } catch {
+            /* 未连接时 disconnect 会抛错，忽略 */
+          }
+          await sleep(GATT_RETRY_DELAY_MS)
+        }
+      }
+    }
+    throw new ScaleConnectError('连接阶段（GATT）', lastError, CONNECT_FAIL_HINTS)
   }
 
   private handleEvent(e: ScaleEvent): void {

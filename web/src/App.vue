@@ -3,8 +3,10 @@
  * 应用骨架：顶栏（品牌 / 连接状态 / 导航）+ 视图容器。
  * 视图用 tab 切换 + keep-alive 保持称量页的实时状态。
  */
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch, type Component } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useDeviceStore } from './stores/device'
+import { useModeStore } from './stores/mode'
 import { usePlansStore } from './stores/plans'
 import WeighView from './views/WeighView.vue'
 import PlansView from './views/PlansView.vue'
@@ -16,8 +18,20 @@ type Tab = 'weigh' | 'plans' | 'history' | 'settings'
 
 const device = useDeviceStore()
 const plans = usePlansStore()
+const modeStore = useModeStore()
+const { mode } = storeToRefs(modeStore)
+const { setMode } = modeStore
 const tab = ref<Tab>((localStorage.getItem('tab') as Tab) || 'weigh')
 watch(tab, (v) => localStorage.setItem('tab', v))
+
+const tabViews: Record<Tab, Component> = {
+  weigh: WeighView,
+  plans: PlansView,
+  history: HistoryView,
+  settings: SettingsView,
+}
+/** KeepAlive 只接受单一子节点，故用动态组件承载各视图 */
+const currentView = computed(() => tabViews[tab.value])
 
 const tabs: { key: Tab; label: string }[] = [
   { key: 'weigh', label: '称量' },
@@ -64,6 +78,27 @@ onMounted(() => {
         </template>
       </div>
 
+      <!-- 模式切换：仅称量页可见，放在顶栏避免占用左栏纵向空间 -->
+      <div
+        v-if="tab === 'weigh' && device.isConnected"
+        class="mode-switch"
+        role="radiogroup"
+        aria-label="模式切换"
+      >
+        <button
+          v-for="m in (['pour', 'standard'] as const)"
+          :key="m"
+          type="button"
+          role="radio"
+          :aria-checked="mode === m"
+          class="mode-btn"
+          :class="{ active: mode === m }"
+          @click="setMode(m)"
+        >
+          {{ m === 'pour' ? '手冲' : '标准' }}
+        </button>
+      </div>
+
       <nav class="tabs" aria-label="视图导航">
         <button
           v-for="t in tabs"
@@ -81,10 +116,7 @@ onMounted(() => {
 
     <main class="content">
       <KeepAlive>
-        <WeighView v-if="tab === 'weigh'" />
-        <PlansView v-if="tab === 'plans'" />
-        <HistoryView v-if="tab === 'history'" />
-        <SettingsView v-if="tab === 'settings'" />
+        <component :is="currentView" />
       </KeepAlive>
     </main>
 
@@ -170,6 +202,33 @@ onMounted(() => {
   align-items: center;
   gap: 4px;
   font-size: 11px;
+}
+
+/* 模式切换（顶栏） */
+.mode-switch {
+  display: inline-flex;
+  border: 1px solid var(--bd);
+  border-radius: 4px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.mode-btn {
+  padding: 4px 14px;
+  font-size: 12px;
+  color: var(--tx-mute);
+  background: var(--bg-soft);
+  transition: background 0.15s, color 0.15s;
+}
+
+.mode-btn:hover {
+  color: var(--tx);
+}
+
+.mode-btn.active {
+  background: var(--ac);
+  color: #141414;
+  font-weight: 600;
 }
 
 .tabs {
