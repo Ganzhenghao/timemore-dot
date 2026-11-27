@@ -14,10 +14,10 @@ const TARE_SETTLE_MS = 5_000
 /** 流速 EMA 平滑系数（10Hz 输入下约 0.8s 时间常数） */
 const FLOW_EMA_ALPHA = 0.25
 const SIGNAL_LOST_MS = 3_000
-/** 连接后电量补读延迟：初始化读取只有一次，DOT 偶发不回，补读直到收到电量 */
-const BATTERY_RETRY_DELAYS_MS = [800, 2_000, 4_000]
+/** 连接后电量补读间隔：DOT 偶发不回，按 2s 依次补读直到收到电量 */
+const BATTERY_RETRY_INTERVAL_MS = 2_000
 /** 连接期间电量刷新间隔：秤不主动上报变化时也能更新显示 */
-const BATTERY_REFRESH_MS = 60_000
+const BATTERY_REFRESH_MS = 30_000
 
 /**
  * 电量归一化：DOT 偶发只回格数、不回百分比（percent=0），
@@ -48,7 +48,7 @@ export const useDeviceStore = defineStore('device', () => {
   const scale = ref<Scale | null>(null)
   let pendingTareSettleUntil = 0
   let signalTimer: ReturnType<typeof setInterval> | null = null
-  let batteryRetryTimers: ReturnType<typeof setTimeout>[] = []
+  let batteryRetryTimer: ReturnType<typeof setInterval> | null = null
   let batteryRefreshTimer: ReturnType<typeof setInterval> | null = null
   /** 显示重量监听（session store 注册，转发采样） */
   const weightListeners = new Set<(displayW: number, flowGps: number) => void>()
@@ -140,8 +140,10 @@ export const useDeviceStore = defineStore('device', () => {
   }
 
   function clearBatteryRetries(): void {
-    for (const t of batteryRetryTimers) clearTimeout(t)
-    batteryRetryTimers = []
+    if (batteryRetryTimer) {
+      clearInterval(batteryRetryTimer)
+      batteryRetryTimer = null
+    }
   }
 
   function stopBatteryRefresh(): void {
@@ -152,18 +154,14 @@ export const useDeviceStore = defineStore('device', () => {
     }
   }
 
-  /** 连接后补读电量并每 60s 刷新；收到电量事件后停止补读 */
+  /** 连接后每 2s 补读电量并每 30s 刷新；收到电量事件后停止补读 */
   function startBatteryRefresh(): void {
     stopBatteryRefresh()
     const s = scale.value
     if (!s) return
-    for (const delay of BATTERY_RETRY_DELAYS_MS) {
-      batteryRetryTimers.push(
-        setTimeout(() => {
-          if (batteryPercent.value == null) s.readBattery()
-        }, delay),
-      )
-    }
+    batteryRetryTimer = setInterval(() => {
+      if (batteryPercent.value == null && connectionState.value === 'connected') s.readBattery()
+    }, BATTERY_RETRY_INTERVAL_MS)
     batteryRefreshTimer = setInterval(() => {
       if (connectionState.value === 'connected') s.readBattery()
     }, BATTERY_REFRESH_MS)
